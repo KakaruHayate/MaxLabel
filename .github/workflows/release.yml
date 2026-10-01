@@ -1,0 +1,102 @@
+name: release
+
+# Pushing a v* tag publishes a release with per-platform archives.
+# workflow_dispatch rebuilds the assets for an existing tag without moving it
+# (the CUDA-style pattern used by tifa.cpp).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing tag to build and attach assets to'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x64, os: windows-latest, archive: zip }
+          - { name: linux-x64,   os: ubuntu-latest,  archive: tar.gz }
+          - { name: macos-arm64, os: macos-14,       archive: tar.gz }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          cache: true
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j 4
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -C Release
+
+      # The GUI needs its Qt runtime next to it; the CLI does not depend on Qt
+      # at all, so both archives carry it and the CLI-only one always works.
+      - name: Deploy the Qt runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = "build/bin/Release"
+          if (-not (Test-Path $bin)) { $bin = "build/bin" }
+          windeployqt --release --no-translations --no-system-d3d-compiler "$bin/MaxLabel.exe"
+          echo "BIN=$bin" >> $env:GITHUB_ENV
+
+      - name: Deploy the Qt runtime (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          BIN=build/bin
+          [ -d "$BIN/MaxLabel.app" ] || BIN="$BIN/Release"
+          macdeployqt "$BIN/MaxLabel.app" -always-overwrite
+          echo "BIN=$BIN" >> "$GITHUB_ENV"
+
+      - name: Locate the binaries (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          BIN=build/bin
+          [ -x "$BIN/maxlabel_cli" ] || BIN="$BIN/Release"
+          echo "BIN=$BIN" >> "$GITHUB_ENV"
+
+      - name: Smoke-test the packaged CLI
+        shell: bash
+        run: |
+          "$BIN/maxlabel_cli" --help > /dev/null
+          "$BIN/maxlabel_cli" validate <(printf '%s\n' '<word text="a" language="zh" script="a" phonemes="a"/>')
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Copy-Item README.md, LICENSE "$env:BIN"
+          Compress-Archive -Path "$env:BIN/*" -DestinationPath "MaxLabel-${{ matrix.name }}.zip"
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          cp README.md LICENSE "$BIN/"
+          tar -czf "MaxLabel-${{ matrix.name }}.tar.gz" -C "$BIN" .
+
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          files: MaxLabel-${{ matrix.name }}.${{ matrix.archive }}
+          fail_on_unmatched_files: true

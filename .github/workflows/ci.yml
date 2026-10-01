@@ -1,0 +1,53 @@
+name: ci
+
+# Builds and tests the data layer and the CLI on all three platforms.  The GUI
+# is deliberately off here: the core library and the CLI must stay buildable
+# without a Qt install, and that is the property this job protects.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x64, os: windows-latest }
+          - { name: linux-x64,   os: ubuntu-latest }
+          - { name: macos-arm64, os: macos-14 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DMAXLABEL_BUILD_UI=OFF
+
+      - name: Build
+        run: cmake --build build --config Release -j 4
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -C Release
+
+      - name: Smoke-test the CLI
+        shell: bash
+        run: |
+          BIN=build/bin
+          # Multi-config generators put the binary in a per-config directory.
+          [ -f "$BIN/maxlabel_cli" ] || [ -f "$BIN/maxlabel_cli.exe" ] || BIN="$BIN/Release"
+          "$BIN/maxlabel_cli" --help > /dev/null
+          mkdir -p /tmp/smoke
+          printf '%s\n' '<word text="重" language="zh" script="zhong" phonemes="zh ong"/>' > /tmp/smoke/line.pfml
+          "$BIN/maxlabel_cli" validate /tmp/smoke/line.pfml
+          printf '%s\n' '<word text="x"><bogus/></word>' > /tmp/smoke/bad.pfml
+          if "$BIN/maxlabel_cli" validate /tmp/smoke/bad.pfml; then
+            echo "expected the malformed fragment to be rejected"; exit 1
+          fi
