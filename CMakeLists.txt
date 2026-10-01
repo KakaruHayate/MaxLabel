@@ -108,17 +108,17 @@ if(MAXLABEL_BUILD_TESTS)
 endif()
 
 # -----------------------------------------------------------------------------
-# GUI (Qt6).  Optional: the core and the CLI build without Qt, which keeps CI
-# and the data layer independent of a Qt install.
+# GUI (Qt6).  Optional: the core and the CLI build without Qt, which keeps the
+# data layer independent of a Qt install.
+#
+# MAXLABEL_BUILD_UI=ON means "build the GUI", so a missing Qt is an error
+# rather than a silent downgrade — otherwise a CI job could pass without ever
+# compiling the GUI it claims to check.  Local builds without Qt pass OFF.
 # -----------------------------------------------------------------------------
-option(MAXLABEL_BUILD_UI "Build the Qt6 GUI" ON)
-if(MAXLABEL_BUILD_UI AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/CMakeLists.txt")
-    find_package(Qt6 COMPONENTS Widgets QUIET)
-    if(Qt6_FOUND)
-        add_subdirectory(src/ui)
-    else()
-        message(STATUS "MaxLabel: Qt6 not found — building without the GUI")
-    endif()
+option(MAXLABEL_BUILD_UI "Build the Qt6 GUI (OFF builds the core and CLI only)" ON)
+if(MAXLABEL_BUILD_UI)
+    find_package(Qt6 COMPONENTS Widgets REQUIRED)
+    add_subdirectory(src/ui)
 endif()
 
 message(STATUS "")

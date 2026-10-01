@@ -51,3 +51,35 @@ jobs:
           if "$BIN/maxlabel_cli" validate /tmp/smoke/bad.pfml; then
             echo "expected the malformed fragment to be rejected"; exit 1
           fi
+
+  # Separate job so the no-Qt job above stays fast and keeps proving that the
+  # data layer builds without Qt.  MAXLABEL_BUILD_UI=ON is an error when Qt is
+  # missing, so this job cannot pass without compiling the GUI.
+  gui:
+    name: gui-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x64, os: windows-latest }
+          - { name: linux-x64,   os: ubuntu-latest }
+          - { name: macos-arm64, os: macos-14 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          cache: true
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-gui
+          -DCMAKE_BUILD_TYPE=Release
+          -DMAXLABEL_BUILD_UI=ON
+
+      - name: Build
+        run: cmake --build build-gui --config Release -j 4
