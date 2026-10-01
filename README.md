@@ -46,10 +46,24 @@ ctest --test-dir build --output-on-failure
 ```
 
 Qt6 是**可选**的：没装 Qt 时只构建核心库与 CLI，数据层不依赖 Qt。
+装了 Qt 时用 `-DCMAKE_PREFIX_PATH=<Qt kit 路径>` 让它找到。
 
 ```bash
 cmake -S . -B build -DMAXLABEL_BUILD_UI=OFF    # 只要 CLI
 ```
+
+> `MAXLABEL_BUILD_UI=ON`（默认）表示"就是要构建 GUI"，找不到 Qt 会直接报错，
+> 而不是静默降级 —— 否则 CI 可能在从未编译过 GUI 的情况下通过。
+
+## 下载
+
+预编译包见 [Releases](https://github.com/KakaruHayate/MaxLabel/releases)：
+
+| 包 | 内容 |
+|---|---|
+| `MaxLabel-windows-x64.zip` | GUI + CLI，已带 Qt 运行时（`windeployqt`），解压即用 |
+| `MaxLabel-macos-arm64.tar.gz` | GUI + CLI，已带 Qt 运行时（`macdeployqt`）；未签名，首次需右键「打开」 |
+| `MaxLabel-linux-x64.tar.gz` | GUI + CLI，**未捆绑 Qt**，需要系统里有 Qt6 运行时（如 `qt6-base-dev`）；CLI 部分不依赖 Qt，可直接用 |
 
 ## 命令行
 
