@@ -87,9 +87,6 @@ maxlabel_cli set <dir> <id> [file]   # 写入 <id>.pfml（无 file 时读 stdin�
 - **任何修改立即落盘**：不留 pending 状态，切段不会丢数据。
 - **不做下游**：TIFA 输出侧的转换、切片修正都不在本项目范围内。
 
-规划与决策记录见 [`docs/`](docs/)：
-[需求分析](docs/pfml-editing-requirements.md) · [实施计划](docs/PLAN.md)。
-
 ## 许可
 
 MPL-2.0，与 tifa.cpp 一致。

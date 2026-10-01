@@ -67,3 +67,7 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Planning notes are kept local: they read as meeting minutes (they quote the
+# discussion) rather than as published documentation.
+/docs/
