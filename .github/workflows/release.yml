@@ -31,7 +31,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Qt6
+      - name: Install Qt6 (Linux)
+        if: runner.os == 'Linux'
+        # The distro package: install-qt-action downloads several gigabytes and
+        # took over 25 minutes on the first (uncached) run, which is not worth
+        # it for a job that only needs Widgets.
+        run: sudo apt-get update && sudo apt-get install -y qt6-base-dev
+
+      - name: Install Qt6 (Windows / macOS)
+        if: runner.os != 'Linux'
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.1'
