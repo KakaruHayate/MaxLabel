@@ -77,8 +77,14 @@ jobs:
       - name: Smoke-test the packaged CLI
         shell: bash
         run: |
-          "$BIN/maxlabel_cli" --help > /dev/null
-          "$BIN/maxlabel_cli" validate <(printf '%s\n' '<word text="a" language="zh" script="a" phonemes="a"/>')
+          # A real file, not a process substitution: <(...) yields /dev/fd/N,
+          # which a native Windows binary cannot open.
+          CLI="$BIN/maxlabel_cli"
+          [ -x "$CLI" ] || CLI="$CLI.exe"
+          printf '%s\n' '<word text="a" language="zh" script="a" phonemes="a"/>' > smoke.pfml
+          "$CLI" --help > /dev/null
+          "$CLI" validate smoke.pfml
+          rm -f smoke.pfml
 
       - name: Package (zip)
         if: matrix.archive == 'zip'
