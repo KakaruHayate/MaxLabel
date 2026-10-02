@@ -10,6 +10,7 @@
 #include <QObject>
 #include <QString>
 
+#include <memory>
 #include <vector>
 
 class QAudioDecoder;
@@ -41,7 +42,7 @@ signals:
     void failed(const QString & message);
 
 private:
-    QAudioDecoder * decoder_ = nullptr;
+    std::unique_ptr<QAudioDecoder> decoder_;
     QString path_;
     std::vector<float> samples_;
     int sample_rate_ = 0;

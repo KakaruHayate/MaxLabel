@@ -10,11 +10,20 @@ add_executable(MaxLabel
     MainWindow.h
     PronunciationDialog.cpp
     PronunciationDialog.h
+    ../audio/AudioClip.cpp
+    ../audio/AudioClip.h
+    ../audio/WaveformView.cpp
+    ../audio/WaveformView.h
+    ../audio/AudioPanel.cpp
+    ../audio/AudioPanel.h
 )
+
+target_include_directories(MaxLabel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../audio)
 
 target_link_libraries(MaxLabel PRIVATE
     MaxLabel::core
     Qt6::Widgets
+    Qt6::Multimedia
 )
 
 set_target_properties(MaxLabel PROPERTIES

@@ -25,24 +25,19 @@ void append_as_mono(const QAudioBuffer & buffer, std::vector<float> & out) {
     if (frames <= 0) return;
 
     const auto frame_value = [&](int frame, int channel) -> float {
+        const int index = frame * channels + channel;
         switch (format.sampleFormat()) {
             case QAudioFormat::UInt8: {
-                const auto * data = reinterpret_cast<const std::uint8_t *>(buffer.constData());
-                return (static_cast<float>(data[frame * channels + channel]) - 128.0f) / 128.0f;
+                const std::uint8_t value = buffer.constData<std::uint8_t>()[index];
+                return (static_cast<float>(value) - 128.0f) / 128.0f;
             }
-            case QAudioFormat::Int16: {
-                const auto * data = reinterpret_cast<const std::int16_t *>(buffer.constData());
-                return static_cast<float>(data[frame * channels + channel]) / 32768.0f;
-            }
-            case QAudioFormat::Int32: {
-                const auto * data = reinterpret_cast<const std::int32_t *>(buffer.constData());
-                return static_cast<float>(data[frame * channels + channel]) /
+            case QAudioFormat::Int16:
+                return static_cast<float>(buffer.constData<std::int16_t>()[index]) / 32768.0f;
+            case QAudioFormat::Int32:
+                return static_cast<float>(buffer.constData<std::int32_t>()[index]) /
                        static_cast<float>(std::int32_t{ 1 } << 30);
-            }
-            case QAudioFormat::Float: {
-                const auto * data = reinterpret_cast<const float *>(buffer.constData());
-                return data[frame * channels + channel];
-            }
+            case QAudioFormat::Float:
+                return buffer.constData<float>()[index];
             default:
                 return 0.0f;
         }
@@ -65,8 +60,13 @@ AudioClip::~AudioClip() = default;
 
 void AudioClip::clear() {
     if (decoder_ != nullptr) {
-        decoder_->stop();
-        decoder_.reset();
+        // Never destroy the decoder from inside one of its own callbacks: a
+        // reload triggered by a signal would free it mid-emit.  Hand it to the
+        // event loop and detach first, so no further callback can arrive.
+        QAudioDecoder * previous = decoder_.release();
+        previous->stop();
+        previous->disconnect(this);
+        previous->deleteLater();
     }
     path_.clear();
     samples_.clear();
@@ -78,20 +78,23 @@ void AudioClip::load(const QString & path) {
     clear();
 
     decoder_ = std::make_unique<QAudioDecoder>(this);
+    QAudioDecoder * const decoder = decoder_.get();
 
     // Ask for what the waveform wants; whatever comes back is converted.
     QAudioFormat requested;
     requested.setSampleFormat(QAudioFormat::Float);
     requested.setChannelCount(1);
-    decoder_->setAudioFormat(requested);
-    decoder_->setSource(QUrl::fromLocalFile(path));
+    decoder->setAudioFormat(requested);
+    decoder->setSource(QUrl::fromLocalFile(path));
 
-    connect(decoder_.get(), &QAudioDecoder::bufferReady, this, [this]() {
-        const QAudioBuffer buffer = decoder_->read();
+    connect(decoder, &QAudioDecoder::bufferReady, this, [this, decoder]() {
+        if (decoder_.get() != decoder) return;   // a superseded decode
+        const QAudioBuffer buffer = decoder->read();
         if (sample_rate_ == 0) sample_rate_ = buffer.format().sampleRate();
         append_as_mono(buffer, samples_);
     });
-    connect(decoder_.get(), &QAudioDecoder::finished, this, [this, path]() {
+    connect(decoder, &QAudioDecoder::finished, this, [this, decoder, path]() {
+        if (decoder_.get() != decoder) return;
         if (samples_.empty()) {
             emit failed(tr("no audio decoded from %1").arg(path));
             return;
@@ -100,13 +103,15 @@ void AudioClip::load(const QString & path) {
         path_ = path;
         emit loaded();
     });
-    connect(decoder_.get(), &QAudioDecoder::errorOccurred, this,
-            [this](QAudioDecoder::Error) {
-                emit failed(decoder_ != nullptr ? decoder_->errorString()
-                                                : tr("decoder failed"));
+    // QAudioDecoder has both an error() getter and an error(Error) signal, so
+    // the overload has to be named explicitly.
+    connect(decoder, QOverload<QAudioDecoder::Error>::of(&QAudioDecoder::error), this,
+            [this, decoder](QAudioDecoder::Error) {
+                if (decoder_.get() != decoder) return;
+                emit failed(decoder->errorString());
             });
 
-    decoder_->start();
+    decoder->start();
 }
 
 double AudioClip::duration() const {

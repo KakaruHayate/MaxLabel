@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "AudioPanel.h"
 #include "PronunciationDialog.h"
 
 #include <QAction>
@@ -18,13 +19,24 @@
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
 
 #include <algorithm>
 #include <exception>
+#include <functional>
 
 namespace {
+
+QString format_time(double seconds) {
+    if (seconds < 0.0) seconds = 0.0;
+    const int total = static_cast<int>(seconds * 1000.0);
+    return QStringLiteral("%1:%2.%3")
+        .arg(total / 60000)
+        .arg((total / 1000) % 60, 2, 10, QLatin1Char('0'))
+        .arg((total / 100) % 10);
+}
 
 // A colour per language.  Chosen to stay apart under the common forms of
 // colour blindness (no red/green pair carrying meaning) and light enough that
@@ -177,30 +189,105 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     list_->setMinimumWidth(220);
     connect(list_, &QListWidget::currentRowChanged, this, &MainWindow::onRowChanged);
 
-    QSplitter * right = new QSplitter(Qt::Vertical, splitter);
-    editor_ = new QPlainTextEdit(right);
+    // Aegisub's arrangement: the audio on top, the controls in a bar under it,
+    // then the text.  The audio is full width because a spectrogram reads time
+    // along X — in a tall thin pane it is unreadable, and that is the pane's
+    // whole job.
+    QSplitter * column = new QSplitter(Qt::Vertical, splitter);
+
+    audio_ = new AudioPanel(column);
+    audio_->setMinimumHeight(150);
+    connect(audio_, &AudioPanel::statusMessage, this, [this](const QString & message) {
+        status_->setText(message);
+    });
+
+    QWidget * controls = new QWidget(column);
+    audioControls_ = controls;
+    QHBoxLayout * controlsLayout = new QHBoxLayout(controls);
+    controlsLayout->setContentsMargins(4, 2, 4, 2);
+    controlsLayout->setSpacing(2);
+
+    const auto addButton = [&](const QString & glyph, const QString & tip,
+                               const std::function<void()> & action, bool checkable = false) {
+        QToolButton * button = new QToolButton(controls);
+        button->setText(glyph);
+        button->setToolTip(tip);
+        button->setAutoRaise(true);
+        button->setCheckable(checkable);
+        // No focus, so the transport never steals the keyboard from the editor.
+        button->setFocusPolicy(Qt::NoFocus);
+        connect(button, &QToolButton::clicked, this, action);
+        controlsLayout->addWidget(button);
+        return button;
+    };
+
+    addButton(QStringLiteral("▶"), tr("Play the selection, or the whole file (Ctrl+Space)"),
+              [this]() { audio_->playSelectionOrAll(); });
+    addButton(QStringLiteral("■"), tr("Stop"), [this]() { audio_->stop(); });
+    controlsLayout->addSpacing(10);
+    addButton(QStringLiteral("«"), tr("Back half a second (Q)"),
+              [this]() { audio_->nudge(-0.5); });
+    addButton(QStringLiteral("»"), tr("Forward half a second (W)"),
+              [this]() { audio_->nudge(0.5); });
+    controlsLayout->addSpacing(10);
+    addButton(QStringLiteral("≋"), tr("Waveform / spectrum"), [this]() { audio_->toggleMode(); },
+              true);
+    controlsLayout->addSpacing(10);
+    addButton(QStringLiteral("⌫"), tr("Clear the selection"),
+              [this]() { audio_->view()->clearSelection(); });
+
+    controlsLayout->addStretch(1);
+    QLabel * readout = new QLabel(format_time(0.0), controls);
+    controlsLayout->addWidget(readout);
+    connect(audio_, &AudioPanel::positionChanged, this, [readout](double seconds) {
+        readout->setText(format_time(seconds));
+    });
+
+    // No audio, no audio area: an empty waveform and a dead transport take up
+    // room and say nothing.
+    connect(audio_, &AudioPanel::audioAvailabilityChanged, this, [this](bool available) {
+        audio_->setVisible(available);
+        if (audioControls_ != nullptr) audioControls_->setVisible(available);
+    });
+    audio_->setVisible(false);
+    controls->setVisible(false);
+
+    editor_ = new QPlainTextEdit(column);
     editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     editor_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     editor_->setPlaceholderText(tr("The lyric line.  Language is detected per script; "
                                    "select a run and press 1-4 to decide it yourself."));
     connect(editor_, &QPlainTextEdit::textChanged, this, &MainWindow::onTextChanged);
 
-    preview_ = new QPlainTextEdit(right);
+    preview_ = new QPlainTextEdit(column);
     preview_->setReadOnly(true);
     preview_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     preview_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     preview_->setPlaceholderText(tr("The PFML that will be written for the aligner."));
 
-    right->addWidget(editor_);
-    right->addWidget(preview_);
-    right->setStretchFactor(0, 3);
-    right->setStretchFactor(1, 1);
+    column->addWidget(audio_);
+    column->addWidget(controls);
+    column->addWidget(editor_);
+    column->addWidget(preview_);
+    column->setStretchFactor(0, 3);
+    column->setStretchFactor(1, 0);
+    column->setStretchFactor(2, 4);
+    column->setStretchFactor(3, 1);
 
     splitter->addWidget(list_);
-    splitter->addWidget(right);
+    splitter->addWidget(column);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
     setCentralWidget(splitter);
+
+    // The audio keys are scoped to the panel so Space can still type a space;
+    // this one works from anywhere, for when the editor has focus.
+    QAction * playAction = new QAction(tr("Play"), this);
+    playAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Space));
+    connect(playAction, &QAction::triggered, this, [this]() {
+        audio_->playSelectionOrAll();
+    });
+    addAction(playAction);
 
     status_ = new QLabel(this);
     statusBar()->addWidget(status_);
@@ -262,11 +349,16 @@ void MainWindow::selectRow(int row) {
     current_ = row;
     const maxlabel::Segment & segment = *currentSegment();
     editor_->setPlainText(QString::fromStdString(segment.text));
+    // Inside the guard: setCurrentRow emits currentRowChanged, and letting it
+    // re-enter would load the same segment's audio twice.
+    list_->setCurrentRow(row);
     loading_ = false;
+
+    // Text-first pairing: the segment decides which audio is loaded.
+    audio_->setAudioFile(QString::fromStdString(segment.audio_path));
 
     applyHighlights();
     refreshPreview();
-    list_->setCurrentRow(row);
     refreshStatus();
     updateActions();
 }

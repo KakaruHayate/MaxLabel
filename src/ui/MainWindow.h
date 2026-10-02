@@ -29,6 +29,7 @@ class QLabel;
 class QListWidget;
 class QPlainTextEdit;
 class QAction;
+class AudioPanel;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -89,6 +90,8 @@ private:
     QListWidget *   list_       = nullptr;
     QPlainTextEdit * editor_    = nullptr;
     QPlainTextEdit * preview_   = nullptr;
+    AudioPanel *    audio_      = nullptr;
+    QWidget *       audioControls_ = nullptr;
     QLabel *        status_     = nullptr;
     QAction *       saveAction_ = nullptr;
     QAction *       prevAction_ = nullptr;
