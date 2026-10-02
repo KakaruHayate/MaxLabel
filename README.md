@@ -166,7 +166,13 @@ maxlabel_cli candidates <文本> --g2p <config.json> [--dicts <dir>] [-l zh,en]
 
 **外观**参考 [R3MOE](https://github.com/KakaruHayate/R3MOE) 的 mouth baker：
 VS Code 暗色中性色 + Material 粉 `#E91E63` 强调色，左侧控制栏、全大写分组标题、扁平按钮。
-调色板在 `src/ui/theme.qss`。版式参考 Aegisub：**音频在上，图标工具条夹在中间，文本在下**。
+调色板在 `src/ui/theme.qss`；图标是 `src/ui/icons/*.svg`（单色，运行时替换颜色后渲染，
+所以同一个文件能同时服务灰色常态和强调色上的白色）。版式参考 Aegisub：**音频在上，图标工具条夹在中间，文本在下**。
+
+**界面语言跟随系统**，中文系统上就是中文。英文是源语言，代码里的字符串就是它显示的内容。
+`--lang en` / `--lang zh_CN` 可覆盖（测试两种语言就是从一台机器上做的）。
+翻译是标准的 Qt `.ts`/`.qm` 流程：`src/ui/i18n/maxlabel_zh_CN.ts` 由 `lupdate` 提取、
+`lrelease` 编译进二进制。
 
 - **音频区**（没有音频的段落会整个收起）：整段音频常驻，点击定位、拖拽选区。
   `≋` 切换**波形 / 频谱**。频谱是时频图 —— 时间沿 X、频率沿 Y，所以它要的是宽度，

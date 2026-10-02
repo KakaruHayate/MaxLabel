@@ -12,15 +12,42 @@
 
 #include <QApplication>
 #include <QFile>
+#include <QLibraryInfo>
+#include <QLocale>
+#include <QByteArray>
 #include <QStringList>
 #include <QStyleFactory>
 #include <QTimer>
+#include <QTranslator>
 
 int main(int argc, char ** argv) {
     QApplication application(argc, argv);
     QApplication::setApplicationName(QStringLiteral("MaxLabel"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
     QApplication::setOrganizationName(QStringLiteral("MaxLabel"));
+
+    // The interface follows the system language.  English is the source
+    // language, so there is nothing to install for it — the strings in the
+    // code are what it shows.
+    // --lang overrides the system language, which is also how the translations
+    // get exercised from one machine.
+    QLocale locale = QLocale::system();
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (qstrcmp(argv[i], "--lang") == 0) locale = QLocale(QString::fromUtf8(argv[i + 1]));
+    }
+    auto * translator = new QTranslator(&application);
+    if (translator->load(locale, QStringLiteral("maxlabel"), QStringLiteral("_"),
+                         QStringLiteral(":/i18n"))) {
+        application.installTranslator(translator);
+    }
+    // Qt's own strings — the file dialog, the standard buttons — come from its
+    // own catalogue, which has to be installed too or the app is half
+    // translated.
+    auto * qtTranslator = new QTranslator(&application);
+    if (qtTranslator->load(locale, QStringLiteral("qtbase"), QStringLiteral("_"),
+                           QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
+        application.installTranslator(qtTranslator);
+    }
 
     // Fusion is the base style the theme is written against: the native
     // Windows style draws its own button chrome and ignores parts of a

@@ -3,6 +3,8 @@
 #include "AudioPanel.h"
 #include "PronunciationDialog.h"
 
+#include "Icons.h"
+
 #include "maxlabel/languages.h"
 
 #include <QAction>
@@ -60,6 +62,24 @@ QColor colour_for(const std::string & language) {
 // The annotation underlines.  They sit on top of a language tint, so they have
 // to be light enough to read against one: the palette's secondary and a warm
 // accent, and the error red for the one case that is a real problem.
+// The name a language is shown under.  It lives here rather than in the
+// language table because the core library has no Qt and therefore no tr(); a
+// language the table gains that this does not know about falls back to its id,
+// which is at least unambiguous.
+QString language_name(const std::string & id) {
+    if (id == "zh")  return QCoreApplication::translate("languages", "Chinese");
+    if (id == "ja")  return QCoreApplication::translate("languages", "Japanese");
+    if (id == "en")  return QCoreApplication::translate("languages", "English");
+    if (id == "ko")  return QCoreApplication::translate("languages", "Korean");
+    if (id == "yue") return QCoreApplication::translate("languages", "Cantonese");
+    return QString::fromStdString(id);
+}
+
+// Icons rest at the text colour and go white where the accent is behind them,
+// which is the same rule the buttons follow.
+const QColor kIconColour(0xCC, 0xCC, 0xCC);
+const QColor kIconOnAccent(0xFF, 0xFF, 0xFF);
+
 const QColor kWordUnderline(0x00, 0xBC, 0xD4);      // secondary
 const QColor kOverrideUnderline(0xFF, 0xB3, 0x00);  // warm: written by hand
 const QColor kErrorUnderline(0xF4, 0x43, 0x36);     // the error colour
@@ -199,8 +219,12 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     railLayout->addWidget(listBox, 1);
 
     const auto addRailButton = [](QGroupBox * box, QBoxLayout * layout, QAction * action,
-                                  bool accent = false) {
+                                  const QString & iconName = QString(), bool accent = false) {
         auto * button = new QPushButton(action->text(), box);
+        if (!iconName.isEmpty()) {
+            button->setIcon(maxlabel::ui::icon(iconName, kIconColour, 16));
+            button->setIconSize(QSize(16, 16));
+        }
         if (accent) button->setProperty("accent", true);
         if (!action->toolTip().isEmpty()) button->setToolTip(action->toolTip());
         connect(button, &QPushButton::clicked, action, &QAction::trigger);
@@ -212,15 +236,17 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         auto * box = new QGroupBox(tr("PROJECT"), rail);
         auto * layout = new QVBoxLayout(box);
         layout->setSpacing(6);
-        addRailButton(box, layout, openAction);
-        addRailButton(box, layout, saveAction_, /*accent=*/true);
+        addRailButton(box, layout, openAction, QStringLiteral("folder"));
+        addRailButton(box, layout, saveAction_, QStringLiteral("save"), /*accent=*/true);
 
         auto * steps = new QHBoxLayout();
         steps->setSpacing(6);
         auto * previous = new QPushButton(tr("‹ Previous"), box);
+        previous->setIcon(maxlabel::ui::icon(QStringLiteral("previous"), kIconColour, 16));
         previous->setToolTip(tr("Z"));
         connect(previous, &QPushButton::clicked, prevAction_, &QAction::trigger);
         auto * next = new QPushButton(tr("Next ›"), box);
+        next->setIcon(maxlabel::ui::icon(QStringLiteral("next"), kIconColour, 16));
         next->setToolTip(tr("X"));
         connect(next, &QPushButton::clicked, nextAction_, &QAction::trigger);
         steps->addWidget(previous);
@@ -246,11 +272,12 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
                 action->setShortcut(QKeySequence(QString(QChar(language.shortcut))));
             }
 
+            // The name is translated, the id is not: the id is what goes into
+            // the PFML, so it stays in the tooltip rather than the label.
+            const QString name = language_name(language.id);
             auto * button = new QPushButton(
-                QStringLiteral("%1  %2").arg(QChar(language.shortcut)).arg(id), box);
-            button->setToolTip(QStringLiteral("%1 — %2")
-                                   .arg(QString::fromStdString(language.label))
-                                   .arg(QString(QChar(language.shortcut))));
+                QStringLiteral("%1  %2").arg(QChar(language.shortcut)).arg(name), box);
+            button->setToolTip(QStringLiteral("%1 — %2").arg(id).arg(QString(QChar(language.shortcut))));
             connect(button, &QPushButton::clicked, action, &QAction::trigger);
             layout->addWidget(button, row, column);
             if (++column == 2) {
@@ -275,7 +302,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         auto * box = new QGroupBox(tr("PRONUNCIATION"), rail);
         auto * layout = new QVBoxLayout(box);
         layout->setSpacing(6);
-        addRailButton(box, layout, pinAction, /*accent=*/true);
+        addRailButton(box, layout, pinAction, QString(), /*accent=*/true);
         addRailButton(box, layout, insertAction);
 
         auto * symbolButton = new QPushButton(tr("Non-lexical ▾"), box);
@@ -316,10 +343,13 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     controlsLayout->setContentsMargins(4, 2, 4, 2);
     controlsLayout->setSpacing(2);
 
-    const auto addButton = [&](const QString & glyph, const QString & tip,
+    const auto addButton = [&](const QString & iconName, const QString & tip,
                                const std::function<void()> & action, bool checkable = false) {
         QToolButton * button = new QToolButton(controls);
-        button->setText(glyph);
+        button->setIcon(checkable
+                            ? maxlabel::ui::icon(iconName, kIconColour, kIconOnAccent, 18)
+                            : maxlabel::ui::icon(iconName, kIconColour, 18));
+        button->setIconSize(QSize(18, 18));
         button->setToolTip(tip);
         button->setProperty("role", "transport");   // square, per the theme
         button->setCheckable(checkable);
@@ -330,19 +360,19 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         return button;
     };
 
-    addButton(QStringLiteral("▶"), tr("Play the selection, or the whole file (Ctrl+Space)"),
+    addButton(QStringLiteral("play"), tr("Play the selection, or the whole file (Ctrl+Space)"),
               [this]() { audio_->playSelectionOrAll(); });
-    addButton(QStringLiteral("■"), tr("Stop"), [this]() { audio_->stop(); });
+    addButton(QStringLiteral("stop"), tr("Stop"), [this]() { audio_->stop(); });
     controlsLayout->addSpacing(10);
-    addButton(QStringLiteral("«"), tr("Back half a second (Q)"),
+    addButton(QStringLiteral("back"), tr("Back half a second (Q)"),
               [this]() { audio_->nudge(-0.5); });
-    addButton(QStringLiteral("»"), tr("Forward half a second (W)"),
+    addButton(QStringLiteral("forward"), tr("Forward half a second (W)"),
               [this]() { audio_->nudge(0.5); });
     controlsLayout->addSpacing(10);
-    addButton(QStringLiteral("≋"), tr("Waveform / spectrum"), [this]() { audio_->toggleMode(); },
+    addButton(QStringLiteral("spectrum"), tr("Waveform / spectrum"), [this]() { audio_->toggleMode(); },
               true);
     controlsLayout->addSpacing(10);
-    addButton(QStringLiteral("⌫"), tr("Clear the selection"),
+    addButton(QStringLiteral("clear"), tr("Clear the selection"),
               [this]() { audio_->view()->clearSelection(); });
 
     controlsLayout->addStretch(1);
@@ -416,6 +446,10 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     status_ = new QLabel(this);
     status_->setProperty("state", "idle");
     statusBar()->addWidget(status_);
+
+    // The editor takes the focus, so the window opens ready to type and no
+    // button shows a focus ring it did not ask for.
+    editor_->setFocus();
 
     refreshStatus();
     updateActions();

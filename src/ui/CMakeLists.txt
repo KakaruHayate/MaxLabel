@@ -8,6 +8,8 @@ add_executable(MaxLabel
     main.cpp
     MainWindow.cpp
     MainWindow.h
+    Icons.cpp
+    Icons.h
     PronunciationDialog.cpp
     PronunciationDialog.h
     resources.qrc
@@ -19,12 +21,21 @@ add_executable(MaxLabel
     ../audio/AudioPanel.h
 )
 
+# The translations are compiled to .qm at build time and embedded, so a release
+# stays one directory.  English is the source language: there is nothing to
+# install for it, and the strings in the code are what it shows.
+qt_add_translations(MaxLabel
+    TS_FILES i18n/maxlabel_zh_CN.ts
+    RESOURCE_PREFIX "/i18n"
+)
+
 target_include_directories(MaxLabel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../audio)
 
 target_link_libraries(MaxLabel PRIVATE
     MaxLabel::core
     Qt6::Widgets
     Qt6::Multimedia
+    Qt6::Svg
 )
 
 set_target_properties(MaxLabel PROPERTIES

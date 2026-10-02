@@ -2,4 +2,16 @@
     <qresource prefix="/">
         <file>theme.qss</file>
     </qresource>
+    <qresource prefix="/icons">
+        <file alias="play.svg">icons/play.svg</file>
+        <file alias="stop.svg">icons/stop.svg</file>
+        <file alias="back.svg">icons/back.svg</file>
+        <file alias="forward.svg">icons/forward.svg</file>
+        <file alias="spectrum.svg">icons/spectrum.svg</file>
+        <file alias="clear.svg">icons/clear.svg</file>
+        <file alias="folder.svg">icons/folder.svg</file>
+        <file alias="save.svg">icons/save.svg</file>
+        <file alias="previous.svg">icons/previous.svg</file>
+        <file alias="next.svg">icons/next.svg</file>
+    </qresource>
 </RCC>

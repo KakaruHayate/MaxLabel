@@ -205,7 +205,7 @@ endif()
 # -----------------------------------------------------------------------------
 option(MAXLABEL_BUILD_UI "Build the Qt6 GUI (OFF builds the core and CLI only)" ON)
 if(MAXLABEL_BUILD_UI)
-    find_package(Qt6 COMPONENTS Widgets Multimedia REQUIRED)
+    find_package(Qt6 COMPONENTS Widgets Multimedia Svg LinguistTools REQUIRED)
     add_subdirectory(src/ui)
 endif()
 
