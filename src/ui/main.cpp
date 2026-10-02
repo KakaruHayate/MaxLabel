@@ -70,6 +70,7 @@ int main(int argc, char ** argv) {
     QString directory;
     QString vocabulary;
     QString g2pConfig;
+    QString g2pDir;
     QString dictionaries;
     QString screenshot;
     bool spectrum = false;
@@ -78,6 +79,8 @@ int main(int argc, char ** argv) {
         const bool has_value = i + 1 < arguments.size();
         if (argument == QLatin1String("--vocab") && has_value) {
             vocabulary = arguments.at(++i);
+        } else if (argument == QLatin1String("--g2p-dir") && has_value) {
+            g2pDir = arguments.at(++i);
         } else if (argument == QLatin1String("--g2p") && has_value) {
             g2pConfig = arguments.at(++i);
         } else if (argument == QLatin1String("--dicts") && has_value) {
@@ -95,6 +98,7 @@ int main(int argc, char ** argv) {
 
     MainWindow window;
     if (!vocabulary.isEmpty()) window.loadVocabulary(vocabulary);
+    if (!g2pDir.isEmpty()) window.loadG2PDirectory(g2pDir);
     if (!g2pConfig.isEmpty()) window.loadG2P(g2pConfig, dictionaries);
     if (!directory.isEmpty()) window.loadDirectory(directory);
     if (spectrum) window.setSpectrumMode(true);

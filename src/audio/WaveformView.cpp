@@ -290,12 +290,6 @@ void WaveformView::paintEvent(QPaintEvent *) {
     const int w = width();
     const int h = height();
 
-    if (hasSelection()) {
-        const int from = x_at(selection_begin_);
-        const int to = x_at(selection_end_);
-        painter.fillRect(QRect(from, 0, std::max(1, to - from), h), kSelection);
-    }
-
     if (mode_ == Mode::Spectrum) {
         painter.drawImage(0, 0, spectrogram());
     } else {
@@ -322,6 +316,15 @@ void WaveformView::paintEvent(QPaintEvent *) {
             const int y1 = mid - static_cast<int>(low * mid);
             painter.drawLine(x, y0, x, std::max(y0 + 1, y1));
         }
+    }
+
+    // The selection is drawn after whatever the pane renders, not before: the
+    // spectrogram is an opaque image and would otherwise cover it, which is why
+    // a selection could be made in waveform mode and not seen in spectrum mode.
+    if (hasSelection()) {
+        const int from = x_at(selection_begin_);
+        const int to = x_at(selection_end_);
+        painter.fillRect(QRect(from, 0, std::max(1, to - from), h), kSelection);
     }
 
     const int playhead = x_at(position_);

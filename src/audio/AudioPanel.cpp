@@ -51,10 +51,7 @@ AudioPanel::AudioPanel(QWidget * parent) : QWidget(parent) {
         emit audioAvailabilityChanged(false);
         emit statusMessage(message);
     });
-    connect(view_, &WaveformView::seekRequested, this, [this](double seconds) {
-        position_ = seconds;
-        emit positionChanged(position_);
-    });
+    connect(view_, &WaveformView::seekRequested, this, &AudioPanel::seek);
 
     // Aegisub's transport keys, scoped to this panel.  Space has to insert a
     // space while the editor has focus, so the audio keys only apply once the

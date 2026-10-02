@@ -115,6 +115,7 @@ set(MAXLABEL_CORE_SOURCES
     src/core/import_pfml.cpp
     src/core/vocabulary.cpp
     src/core/g2p_context.cpp
+    src/core/g2p_config.cpp
 )
 if(MAXLABEL_WITH_FASTTEXT)
     list(APPEND MAXLABEL_CORE_SOURCES src/core/fasttext_detector.cpp)

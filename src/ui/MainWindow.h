@@ -49,6 +49,8 @@ public:
     // answers.  Without them everything still works, by hand.
     void loadVocabulary(const QString & path);
     void loadG2P(const QString & config_json, const QString & dictionary_dir);
+    // Builds the config from a model directory and loads it.
+    void loadG2PDirectory(const QString & model_dir);
 
     // Development aid: start in spectrum mode, so the renderer can be looked at.
     void setSpectrumMode(bool spectrum);
@@ -69,6 +71,12 @@ private slots:
     void undo();
     void redo();
     void setSelectionLanguage(const QString & language);
+
+protected:
+    // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y are intercepted at the editor, because a
+    // text widget that has its own (disabled) undo still eats the key event
+    // before a window-level shortcut can see it.
+    bool eventFilter(QObject * watched, QEvent * event) override;
 
 private:
     // Undo is whole-segment snapshots.  Aegisub's model, and the one that fits:
@@ -125,6 +133,14 @@ private:
     QTimer *  statusTimer_ = nullptr;
     QAction * undoAction_ = nullptr;
     QAction * redoAction_ = nullptr;
+
+    // The language actions, built once from the language table: the rail shows
+    // them and so does the quick bar, and both drive the same action.
+    struct LanguageEntry {
+        QString id;
+        QAction * action;
+    };
+    std::vector<LanguageEntry> languageActions_;
 
     QListWidget *   list_       = nullptr;
     QPlainTextEdit * editor_    = nullptr;

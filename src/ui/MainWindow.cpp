@@ -5,6 +5,7 @@
 
 #include "Icons.h"
 
+#include "maxlabel/g2p_config.h"
 #include "maxlabel/languages.h"
 
 #include <QAction>
@@ -482,6 +483,33 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     addButton(QStringLiteral("clear"), tr("Clear the selection"),
               [this]() { audio_->view()->clearSelection(); });
 
+    controlsLayout->addSpacing(10);
+
+    // The annotations people reach for constantly, in the bar between the audio
+    // and the text — where the eye already is, and where a selection made in
+    // the text is one click away from being used.
+    const auto addQuick = [&](QAction * action) {
+        QToolButton * button = new QToolButton(controls);
+        button->setText(action->text());
+        button->setToolTip(action->toolTip().isEmpty() ? action->text() : action->toolTip());
+        button->setFocusPolicy(Qt::NoFocus);
+        connect(button, &QToolButton::clicked, action, &QAction::trigger);
+        controlsLayout->addWidget(button);
+        return button;
+    };
+    addQuick(markWordAction);
+    addQuick(pinAction);
+    addQuick(insertAction);
+    controlsLayout->addSpacing(10);
+    for (const LanguageEntry & entry : languageActions_) {
+        QToolButton * button = new QToolButton(controls);
+        button->setText(entry.id);
+        button->setToolTip(entry.action->toolTip());
+        button->setFocusPolicy(Qt::NoFocus);
+        connect(button, &QToolButton::clicked, entry.action, &QAction::trigger);
+        controlsLayout->addWidget(button);
+    }
+
     controlsLayout->addStretch(1);
     QLabel * readout = new QLabel(format_time(0.0), controls);
     readout->setProperty("role", "readout");
@@ -504,7 +532,13 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     // One undo, not two.  Qt's own stack would cover typing and silently ignore
     // every annotation, which is worse than no undo at all.
     editor_->setUndoRedoEnabled(false);
-    editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    // And the editor has to hand the key over: with its own undo disabled it
+    // would otherwise swallow Ctrl+Z and the history would only be reachable
+    // from the rail.
+    editor_->installEventFilter(this);
+    QFont editorFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    editorFont.setPointSize(editorFont.pointSize() + 3);   // the text is the point
+    editor_->setFont(editorFont);
     editor_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     editor_->setPlaceholderText(tr("The lyric line.  Language is detected per script; "
                                    "select a run and press 1-4 to decide it yourself."));
@@ -567,6 +601,27 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     updateActions();
     updateHistoryActions();
     lastPushWasTyping_ = false;
+}
+
+bool MainWindow::eventFilter(QObject * watched, QEvent * event) {
+    if (event->type() == QEvent::KeyPress && watched == editor_) {
+        auto * key = static_cast<QKeyEvent *>(event);
+        const int modifiers = key->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier);
+        if (modifiers == Qt::ControlModifier && key->key() == Qt::Key_Z) {
+            undo();
+            return true;
+        }
+        if (modifiers == Qt::ControlModifier && key->key() == Qt::Key_Y) {
+            redo();
+            return true;
+        }
+        if (modifiers == (Qt::ControlModifier | Qt::ShiftModifier) &&
+            key->key() == Qt::Key_Z) {
+            redo();
+            return true;
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 const maxlabel::Segment * MainWindow::currentSegment() const {
@@ -849,6 +904,17 @@ void MainWindow::loadVocabulary(const QString & path) {
     refreshStatus();
 }
 
+void MainWindow::loadG2PDirectory(const QString & model_dir) {
+    // The dictionaries live beside the model, so pointing at it is all the
+    // configuration a user should have to do.
+    const std::string config = maxlabel::build_g2p_config(model_dir.toStdString());
+    if (config.empty()) {
+        showStatus(tr("No dictionaries in %1").arg(model_dir), "error");
+        return;
+    }
+    loadG2P(QString::fromStdString(config), model_dir);
+}
+
 void MainWindow::loadG2P(const QString & config_json, const QString & dictionary_dir) {
     std::string error;
     if (!g2p_.load(config_json.toStdString(), dictionary_dir.toStdString(), &error)) {
@@ -966,7 +1032,23 @@ void MainWindow::applyHighlights() {
     // one, because that is the case the aligner would fail on — and finding
     // out here is the whole reason to check.
     for (const maxlabel::Override & override_ : segment->overrides) {
-        if (override_.inserts()) continue;   // no text to underline
+        if (override_.inserts()) {
+            // An insertion has no width, so mark the character it sits in front
+            // of: without that the position is only in the PFML preview, and a
+            // phoneme you cannot see is one you cannot fix.
+            const int at = utf16_offset_of(text, override_.begin);
+            if (at >= text.size()) continue;
+            QTextEdit::ExtraSelection selection;
+            selection.cursor = QTextCursor(editor_->document());
+            selection.cursor.setPosition(at);
+            selection.cursor.setPosition(std::min(at + 1, static_cast<int>(text.size())),
+                                         QTextCursor::KeepAnchor);
+            QTextCharFormat format;
+            format.setBackground(QColor(0x5C, 0x47, 0x26));
+            selection.format = format;
+            selections.push_back(selection);
+            continue;
+        }
         const int begin = utf16_offset_of(text, override_.begin);
         const int end   = utf16_offset_of(text, override_.end);
         if (end <= begin) continue;

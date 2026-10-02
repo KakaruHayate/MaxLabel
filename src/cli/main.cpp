@@ -5,6 +5,7 @@
 
 #include "maxlabel/core.h"
 #include "maxlabel/g2p_context.h"
+#include "maxlabel/g2p_config.h"
 #include "maxlabel/language.h"
 #include "maxlabel/models.h"
 #include "maxlabel/vocabulary.h"
@@ -20,6 +21,37 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shellapi.h>
+#endif
+
+#ifdef _WIN32
+
+// argv on Windows is in the ANSI code page, which on a Chinese system is GBK:
+// a transcript handed in on the command line would arrive as 锟斤拷 and reach the
+// pipeline as something no converter claims.  The real command line is wide, so
+// it is re-encoded as UTF-8 here — the same thing QApplication::arguments does
+// for the GUI, and the reason the GUI never had this problem.
+std::vector<std::string> utf8_args() {
+    int count = 0;
+    LPWSTR * wide = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (wide == nullptr) return {};
+    std::vector<std::string> out;
+    out.reserve(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        const int bytes =
+            WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, nullptr, 0, nullptr, nullptr);
+        if (bytes <= 1) {
+            out.emplace_back();
+            continue;
+        }
+        std::string value(static_cast<std::size_t>(bytes) - 1, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, value.data(), bytes, nullptr, nullptr);
+        out.push_back(std::move(value));
+    }
+    LocalFree(wide);
+    return out;
+}
+
 #endif
 
 namespace {
@@ -223,15 +255,30 @@ int command_phoneme(const std::string & symbol, const std::string & vocabulary_p
 int command_candidates(const std::string & text, const std::string & g2p_config,
                        const std::string & dictionaries,
                        const std::vector<std::string> & languages) {
-    if (g2p_config.empty()) {
-        std::cerr << "candidates needs --g2p <config.json> [--dicts <dir>]\n";
+    if (g2p_config.empty() && dictionaries.empty()) {
+        std::cerr << "candidates needs --g2p <config.json> or --g2p-dir <model dir>\n";
         return 2;
     }
     maxlabel::G2PContext g2p;
     std::string error;
-    if (!g2p.load(g2p_config, dictionaries, &error)) {
-        std::cerr << error << "\n";
-        return 1;
+    // --g2p-dir points at a model directory and the config is built from what is
+    // in it; --g2p points at a config file.  Either way the user should not have
+    // to write a g2p config by hand.
+    if (!g2p_config.empty()) {
+        if (!g2p.load(g2p_config, dictionaries, &error)) {
+            std::cerr << error << "\n";
+            return 1;
+        }
+    } else {
+        const std::string built = maxlabel::build_g2p_config(dictionaries);
+        if (built.empty()) {
+            std::cerr << "no usable dictionaries in " << dictionaries << "\n";
+            return 1;
+        }
+        if (!g2p.loadConfig(built, dictionaries, &error)) {
+            std::cerr << error << "\n";
+            return 1;
+        }
     }
 
     const std::vector<tifa_ggml::G2PWordCandidates> words = g2p.candidates(text, languages);
@@ -268,7 +315,16 @@ int main(int argc, char ** argv) {
     // keeps the compiled-in default, which is the source tree.
     maxlabel::use_bundled_models(argc > 0 ? argv[0] : "");
 
-    const std::vector<std::string> args(argv + 1, argv + argc);
+    
+    // The command line is re-read as UTF-8 on Windows (see utf8_args above).
+#ifdef _WIN32
+    const std::vector<std::string> rawArgs = utf8_args();
+    if (rawArgs.empty()) { usage(); return 2; }
+    const std::vector<std::string> args(rawArgs.begin() + 1, rawArgs.end());
+    maxlabel::use_bundled_models(rawArgs.front());
+#else
+        maxlabel::use_bundled_models(argc > 0 ? argv[0] : "");
+#endif
 
     // A global option: where the data files (the BudouX models, the detector
     // weights) are looked up.
@@ -311,6 +367,7 @@ int main(int argc, char ** argv) {
             std::vector<std::string> languages;
             for (std::size_t i = 2; i + 1 < args.size(); ++i) {
                 if (args[i] == "--g2p") g2p_config = args[i + 1];
+                if (args[i] == "--g2p-dir") { dictionaries = args[i + 1]; g2p_config.clear(); }
                 if (args[i] == "--dicts") dictionaries = args[i + 1];
                 if (args[i] == "-l") languages = split_commas(args[i + 1]);
             }

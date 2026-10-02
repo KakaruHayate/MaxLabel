@@ -33,6 +33,10 @@ public:
     bool load(const std::string & config_json_path, const std::string & dict_dir,
               std::string * error = nullptr);
 
+    // The same, from a config already in hand — what build_g2p_config produces.
+    bool loadConfig(const std::string & config_json, const std::string & dict_dir,
+                    std::string * error = nullptr);
+
     bool ready() const;
 
     // The pronunciations the pipeline offers, per word.  Empty when the
