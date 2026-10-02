@@ -42,6 +42,10 @@ struct Segment {
     // already written into the fragment.
     std::vector<LangSpan> spans;
 
+    // Word boundaries the author fixed by hand; the aligner otherwise segments
+    // by its own dictionary.
+    std::vector<WordBoundary> words;
+
     // The editable content.  Empty when the segment has no text yet (audio
     // only, waiting to be typed in).
     std::string pfml;
@@ -83,6 +87,17 @@ void set_span_language(Segment & segment, std::size_t begin, std::size_t end,
 // Regenerate `segment.pfml` from `text` + `spans`.  A no-op for a segment with
 // no spans (a .pfml source keeps the fragment it was loaded from).
 void rebuild_pfml(Segment & segment);
+
+// Fix the word boundary over [begin, end) — the manual segmentation the
+// aligner's dictionary would otherwise decide.  Out-of-range or empty ranges
+// are ignored.  An existing boundary that overlaps is replaced.
+void add_word(Segment & segment, std::size_t begin, std::size_t end);
+
+// Drop every word boundary touching `position` (either edge counts), so the
+// same selection toggles a boundary off again.
+void remove_word_at(Segment & segment, std::size_t position);
+
+void clear_words(Segment & segment);
 
 // Parse-only PFML validation.  Throws tifa_ggml::InvalidArgument carrying the
 // byte offset when the fragment is malformed.

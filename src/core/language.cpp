@@ -4,7 +4,9 @@
 
 #include "maxlabel/core.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <string>
 #include <utility>
 
 namespace maxlabel {
@@ -190,19 +192,49 @@ bool has_undetermined(const std::vector<LangSpan> & spans) {
     return false;
 }
 
-std::string spans_to_pfml(const std::string & text, const std::vector<LangSpan> & spans) {
+std::string annotate_to_pfml(const std::string & text,
+                             const std::vector<LangSpan> & spans,
+                             const std::vector<WordBoundary> & words,
+                             std::string * error) {
     std::string out;
+
+    // Word boundaries sorted once, then consumed as the spans are walked: both
+    // lists are in text order, so this is a merge rather than a search.
+    std::vector<WordBoundary> ordered;
+    ordered.reserve(words.size());
+    for (const WordBoundary & word : words) {
+        if (word.begin < word.end && word.end <= text.size()) ordered.push_back(word);
+    }
+    std::sort(ordered.begin(), ordered.end(),
+              [](const WordBoundary & a, const WordBoundary & b) { return a.begin < b.begin; });
+
+    const auto emit_words = [&](std::size_t begin, std::size_t end) {
+        std::size_t pos = begin;
+        for (const WordBoundary & word : ordered) {
+            if (word.end <= begin || word.begin >= end) continue;
+            if (word.begin < begin || word.end > end) {
+                // <word> lives inside <scope>, so a word spanning two language
+                // runs has no PFML spelling.  Say so instead of guessing.
+                if (error != nullptr && error->empty()) {
+                    *error = "a fixed word crosses a language boundary (bytes " +
+                             std::to_string(word.begin) + "-" + std::to_string(word.end) +
+                             "); it was left as plain text";
+                }
+                continue;
+            }
+            if (word.begin > pos) out += escape_text(text.substr(pos, word.begin - pos));
+            out += "<word>";
+            out += escape_text(text.substr(word.begin, word.end - word.begin));
+            out += "</word>";
+            pos = word.end;
+        }
+        if (pos < end) out += escape_text(text.substr(pos, end - pos));
+    };
+
     std::size_t i = 0;
     while (i < spans.size()) {
         const LangSpan & span = spans[i];
         if (span.begin >= span.end || span.end > text.size()) {
-            ++i;
-            continue;
-        }
-        if (span.language.empty()) {
-            // An undetermined run stays bare text: valid PFML that says "no
-            // language here", rather than a scope asserting a wrong one.
-            out += escape_text(text.substr(span.begin, span.end - span.begin));
             ++i;
             continue;
         }
@@ -215,14 +247,25 @@ std::string spans_to_pfml(const std::string & text, const std::vector<LangSpan> 
             end = spans[next].end;
             ++next;
         }
-        out += "<scope language=\"";
-        out += span.language;
-        out += "\">";
-        out += escape_text(text.substr(span.begin, end - span.begin));
-        out += "</scope>";
+
+        if (span.language.empty()) {
+            // Undetermined: bare text, no scope.  Valid PFML that says "no
+            // language here", rather than a scope asserting a wrong one.
+            emit_words(span.begin, end);
+        } else {
+            out += "<scope language=\"";
+            out += span.language;
+            out += "\">";
+            emit_words(span.begin, end);
+            out += "</scope>";
+        }
         i = next;
     }
     return out;
+}
+
+std::string spans_to_pfml(const std::string & text, const std::vector<LangSpan> & spans) {
+    return annotate_to_pfml(text, spans, {}, nullptr);
 }
 
 std::string text_to_pfml(const std::string & text, const std::string & default_language) {

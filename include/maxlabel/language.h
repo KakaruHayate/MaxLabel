@@ -47,11 +47,28 @@ std::vector<LangSpan> detect_languages(const std::string & text,
 // before it can be trusted.
 bool has_undetermined(const std::vector<LangSpan> & spans);
 
-// Serialize text + spans into a PFML fragment: a run of one language becomes
-// <scope language="...">…</scope>, an undetermined run stays bare text.
+// A fixed word boundary: the run of text the aligner must treat as one word.
+// The aligner otherwise segments by its own dictionary, and this is how a
+// human overrides that.
+struct WordBoundary {
+    std::size_t begin = 0;
+    std::size_t end   = 0;
+};
+
+// Serialize text + spans + word boundaries into a PFML fragment: a run of one
+// language becomes <scope language="...">…</scope>, a fixed word becomes
+// <word>…</word> inside it, and an undetermined run stays bare text.
 //
-// `manual` spans are emitted the same way — the flag says who decided, not
-// what the markup looks like.
+// PFML nests <word> inside <scope> and forbids the reverse, so a word boundary
+// that crosses a language boundary cannot be expressed.  Such a word is
+// reported through `error` (when non-null) and emitted as plain text rather
+// than silently split or dropped.
+std::string annotate_to_pfml(const std::string & text,
+                             const std::vector<LangSpan> & spans,
+                             const std::vector<WordBoundary> & words,
+                             std::string * error = nullptr);
+
+// Serialize text + spans only.
 std::string spans_to_pfml(const std::string & text, const std::vector<LangSpan> & spans);
 
 // Convenience: detect, then serialize.

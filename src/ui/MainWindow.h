@@ -45,6 +45,8 @@ private slots:
     void goPrevious();
     void goNext();
     void reSplit();
+    void markWord();
+    void clearWords();
     void setSelectionLanguageZh();
     void setSelectionLanguageJa();
     void setSelectionLanguageEn();

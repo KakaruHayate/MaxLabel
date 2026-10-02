@@ -387,7 +387,40 @@ void rebuild_pfml(Segment & segment) {
     // A segment with no spans is a .pfml source: its language is already in the
     // fragment, and regenerating would throw that away.
     if (segment.spans.empty()) return;
-    segment.pfml = spans_to_pfml(segment.text, segment.spans);
+    segment.pfml = annotate_to_pfml(segment.text, segment.spans, segment.words, nullptr);
+}
+
+void add_word(Segment & segment, std::size_t begin, std::size_t end) {
+    if (begin >= end || end > segment.text.size()) return;
+
+    std::vector<WordBoundary> kept;
+    kept.reserve(segment.words.size() + 1);
+    for (const WordBoundary & word : segment.words) {
+        if (word.end <= begin || word.begin >= end) kept.push_back(word);
+    }
+    kept.push_back(WordBoundary{ begin, end });
+    std::sort(kept.begin(), kept.end(),
+              [](const WordBoundary & a, const WordBoundary & b) { return a.begin < b.begin; });
+    segment.words = std::move(kept);
+    rebuild_pfml(segment);
+}
+
+void remove_word_at(Segment & segment, std::size_t position) {
+    std::vector<WordBoundary> kept;
+    kept.reserve(segment.words.size());
+    for (const WordBoundary & word : segment.words) {
+        if (word.begin <= position && position <= word.end) continue;
+        kept.push_back(word);
+    }
+    if (kept.size() == segment.words.size()) return;
+    segment.words = std::move(kept);
+    rebuild_pfml(segment);
+}
+
+void clear_words(Segment & segment) {
+    if (segment.words.empty()) return;
+    segment.words.clear();
+    rebuild_pfml(segment);
 }
 
 void set_span_language(Segment & segment, std::size_t begin, std::size_t end,

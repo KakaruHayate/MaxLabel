@@ -87,6 +87,14 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     reSplitAction_->setToolTip(tr("Discard the manual language marks and re-run detection"));
     connect(reSplitAction_, &QAction::triggered, this, &MainWindow::reSplit);
 
+    QAction * markWord = toolbar->addAction(tr("Mark Word"));
+    markWord->setShortcut(QKeySequence(Qt::Key_W));
+    markWord->setToolTip(tr("Fix the selected run as one word"));
+    connect(markWord, &QAction::triggered, this, &MainWindow::markWord);
+
+    QAction * clearWordsAction = toolbar->addAction(tr("Clear Words"));
+    connect(clearWordsAction, &QAction::triggered, this, &MainWindow::clearWords);
+
     toolbar->addSeparator();
     toolbar->addAction(tr("·  set language of selection:"));
 
@@ -246,6 +254,34 @@ void MainWindow::reSplit() {
     refreshStatus();
 }
 
+void MainWindow::markWord() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+
+    const QTextCursor cursor = editor_->textCursor();
+    if (!cursor.hasSelection()) {
+        status_->setText(tr("Select the run to fix as one word."));
+        return;
+    }
+    const QString text = editor_->toPlainText();
+    const std::size_t begin = byte_offset_of(text, cursor.selectionStart());
+    const std::size_t end   = byte_offset_of(text, cursor.selectionEnd());
+
+    maxlabel::add_word(*segment, begin, end);
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+}
+
+void MainWindow::clearWords() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+    maxlabel::clear_words(*segment);
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+}
+
 void MainWindow::applyHighlights() {
     const maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
@@ -276,6 +312,27 @@ void MainWindow::applyHighlights() {
         selection.format = format;
         selections.push_back(selection);
     }
+
+    // Fixed word boundaries get a solid underline on top of the language
+    // background: two independent layers over the same text, so they have to
+    // be told apart at a glance.
+    for (const maxlabel::WordBoundary & word : segment->words) {
+        const int begin = utf16_offset_of(text, word.begin);
+        const int end   = utf16_offset_of(text, word.end);
+        if (end <= begin) continue;
+
+        QTextEdit::ExtraSelection selection;
+        selection.cursor = QTextCursor(editor_->document());
+        selection.cursor.setPosition(begin);
+        selection.cursor.setPosition(end, QTextCursor::KeepAnchor);
+
+        QTextCharFormat format;
+        format.setUnderlineStyle(QTextCharFormat::SingleUnderline);
+        format.setUnderlineColor(QColor(0x2C, 0x3E, 0x50));
+        selection.format = format;
+        selections.push_back(selection);
+    }
+
     editor_->setExtraSelections(selections);
 }
 
@@ -380,6 +437,9 @@ void MainWindow::refreshStatus() {
     }
     if (has_manual_spans(segment->spans)) {
         parts << tr("manual marks: editing the text re-derives them");
+    }
+    if (!segment->words.empty()) {
+        parts << tr("%n fixed word(s)", "", static_cast<int>(segment->words.size()));
     }
     if (!segment->pfml_valid) {
         parts << tr("PFML INVALID: %1").arg(QString::fromStdString(segment->error));

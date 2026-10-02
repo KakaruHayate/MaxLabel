@@ -160,6 +160,39 @@ int main() {
         fs::remove_all(dir);
     }
 
+    // Word boundaries: the manual segmentation the dictionary would otherwise
+    // decide.
+    {
+        maxlabel::Segment segment;
+        segment.text = "今天天气不错 I love you";
+        segment.default_language = "zh";
+        maxlabel::detect_spans(segment);
+
+        maxlabel::add_word(segment, 0, 6);   // 今天
+        check(segment.pfml.find("<scope language=\"zh\"><word>今天</word>") !=
+                  std::string::npos,
+              "word: nested inside the scope, not beside it");
+        check(parses(segment.pfml), "word: generated pfml parses");
+
+        maxlabel::remove_word_at(segment, 0);
+        check(segment.words.empty(), "word: removed at the boundary");
+        check(segment.pfml.find("<word>") == std::string::npos, "word: gone from the pfml too");
+
+        // PFML puts <word> inside <scope>, so a word spanning two languages
+        // has no spelling.  It must be reported, not silently split.
+        maxlabel::add_word(segment, 15, 22);
+        std::string error;
+        const std::string pfml =
+            maxlabel::annotate_to_pfml(segment.text, segment.spans, segment.words, &error);
+        check(!error.empty(), "word: crossing a language boundary is reported");
+        check(pfml.find("<word>") == std::string::npos,
+              "word: the unrepresentable word stays plain text");
+        check(parses(pfml), "word: the output still parses");
+
+        maxlabel::clear_words(segment);
+        check(segment.words.empty(), "word: clear_words empties the list");
+    }
+
     std::cout << (failures == 0 ? "\nALL PASS\n" : "\nFAILURES\n");
     return failures == 0 ? 0 : 1;
 }
