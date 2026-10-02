@@ -23,6 +23,10 @@ const char * to_string(TextSource source);
 // One editable line.
 struct Segment {
     std::string id;          // basename shared by every file of the segment
+    // Where the segment lives.  Not derived from audio_path: a segment with no
+    // audio has none, and deriving it from one that does would put a saved file
+    // wherever the process happens to be running.
+    std::string directory;
     std::string audio_path;  // empty when no audio is paired
     std::string pfml_path;
     std::string txt_path;

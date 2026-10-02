@@ -245,6 +245,7 @@ Project scan(const std::string & directory) {
         index.emplace(id, project.segments.size());
         project.segments.push_back(Segment{});
         project.segments.back().id = id;
+        project.segments.back().directory = directory;
         return project.segments.size() - 1;
     };
 
@@ -358,12 +359,17 @@ void load(Segment & segment) {
 void save(const Segment & segment) {
     validate(segment.pfml);
     if (segment.id.empty()) throw std::runtime_error("segment has no id");
-    const fs::path directory = segment.audio_path.empty()
-                                   ? fs::path()
-                                   : fs::path(segment.audio_path).parent_path();
-    const std::string target =
-        (directory.empty() ? fs::path(segment.id) : directory / segment.id).string() + ".pfml";
-    write_file(target, segment.pfml);
+    if (segment.directory.empty()) {
+        // Refusing beats guessing: writing to a relative path would put the
+        // file wherever the process happens to be running.
+        throw std::runtime_error("segment '" + segment.id + "' has no directory");
+    }
+    const fs::path target = fs::path(segment.directory) / (segment.id + ".pfml");
+    // Rewriting identical bytes would only move the timestamp, and a file whose
+    // timestamp changes every time you click a different segment looks edited
+    // when it is not.
+    if (read_file(target.string()) == segment.pfml) return;
+    write_file(target.string(), segment.pfml);
 }
 
 void validate(const std::string & pfml) {

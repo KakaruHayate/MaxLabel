@@ -208,6 +208,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     railLayout->setSpacing(8);
 
     list_ = new QListWidget(rail);
+    list_->setObjectName(QStringLiteral("segmentList"));
     list_->setMinimumHeight(120);
     connect(list_, &QListWidget::currentRowChanged, this, &MainWindow::onRowChanged);
 
@@ -332,6 +333,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     audioLayout->setContentsMargins(8, 8, 8, 8);
 
     audio_ = new AudioPanel(audioBox);
+    audio_->setObjectName(QStringLiteral("audioPanel"));
     audio_->setMinimumHeight(150);
     audioLayout->addWidget(audio_);
     connect(audio_, &AudioPanel::statusMessage, this, [this](const QString & message) {
@@ -394,6 +396,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     controls->setVisible(false);
 
     editor_ = new QPlainTextEdit(column);
+    editor_->setObjectName(QStringLiteral("editor"));
     editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     editor_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     editor_->setPlaceholderText(tr("The lyric line.  Language is detected per script; "
@@ -401,6 +404,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     connect(editor_, &QPlainTextEdit::textChanged, this, &MainWindow::onTextChanged);
 
     preview_ = new QPlainTextEdit(column);
+    preview_->setObjectName(QStringLiteral("preview"));
     preview_->setReadOnly(true);
     preview_->setProperty("readOnly", true);
     preview_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
@@ -778,14 +782,19 @@ bool MainWindow::commitCurrent(bool quiet) {
     if (segment == nullptr) return true;
 
     const std::string text = editor_->toPlainText().toStdString();
-    if (text == segment->text) return true;   // nothing to do
 
     maxlabel::Segment candidate = *segment;
-    candidate.text = text;
-    // Offsets from a previous text no longer describe this one, so the spans
-    // are re-derived rather than sliced against the wrong string.
-    maxlabel::detect_spans(candidate);
-    maxlabel::rebuild_pfml(candidate);
+    if (text != candidate.text) {
+        // Offsets from a previous text no longer describe this one, so the
+        // spans are re-derived rather than sliced against the wrong string.
+        candidate.text = text;
+        maxlabel::detect_spans(candidate);
+        maxlabel::rebuild_pfml(candidate);
+    }
+    // Always written, even when the model already matches: typing keeps the
+    // model in step, so an early return here meant the save button did nothing
+    // in the ordinary case.  `save` skips the write when the bytes are already
+    // on disk, so this costs a read rather than a rewrite.
     try {
         maxlabel::save(candidate);
     } catch (const std::exception & error) {
