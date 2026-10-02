@@ -12,6 +12,7 @@
 #include "RunStrip.h"
 
 #include "maxlabel/core.h"
+#include "maxlabel/models.h"
 
 #include <QApplication>
 #include <QFile>
@@ -26,6 +27,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <filesystem>
 #include <string>
 
 static int failures = 0;
@@ -43,6 +45,14 @@ static std::string read_file(const QString & path) {
 }
 
 int main(int argc, char ** argv) {
+    // The default segmentation context reads whatever model sits in the model
+    // directory, and CI and the release job download *different* ones — so a
+    // test that lets detection run against them answers differently in the two
+    // places it runs.  Pointing the directory at nothing makes the
+    // script-only path the one under test, which is what these assert.
+    maxlabel::set_model_directory(
+        (std::filesystem::temp_directory_path() / "maxlabel_no_models").string());
+
     // No display on a build machine, and none needed: the window is exercised
     // through its own methods, not through the platform.
     qputenv("QT_QPA_PLATFORM", "offscreen");

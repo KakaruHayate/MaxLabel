@@ -2,6 +2,7 @@
 // precedence, PFML validation and export.  No Qt, no model, no network.
 
 #include "maxlabel/core.h"
+#include "maxlabel/models.h"
 
 #include <filesystem>
 #include <fstream>
@@ -30,6 +31,14 @@ static const maxlabel::Segment * find(const maxlabel::Project & project, const s
 }
 
 int main() {
+    // The default segmentation context reads whatever model sits in the model
+    // directory, and CI and the release job download *different* ones — so a
+    // test that lets detection run against them answers differently in the two
+    // places it runs.  Pointing the directory at nothing makes the
+    // script-only path the one under test, which is what these assert.
+    maxlabel::set_model_directory(
+        (fs::temp_directory_path() / "maxlabel_no_models").string());
+
     const fs::path dir = fs::temp_directory_path() / "maxlabel_core_test";
     fs::remove_all(dir);
     fs::create_directories(dir);

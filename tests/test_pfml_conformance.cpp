@@ -17,10 +17,12 @@
 #include "maxlabel/annotate.h"
 #include "maxlabel/import_pfml.h"
 #include "maxlabel/core.h"
+#include "maxlabel/models.h"
 
 #include <cctype>
 #include <iostream>
 #include <set>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -132,6 +134,14 @@ static std::string annotate(const std::string & text,
 }
 
 int main() {
+    // The default segmentation context reads whatever model sits in the model
+    // directory, and CI and the release job download *different* ones — so a
+    // test that lets detection run against them answers differently in the two
+    // places it runs.  Pointing the directory at nothing makes the
+    // script-only path the one under test, which is what these assert.
+    maxlabel::set_model_directory(
+        (std::filesystem::temp_directory_path() / "maxlabel_no_models").string());
+
     // Plain text, including the characters that have to be escaped.
     {
         const std::string text = "a < b & c";

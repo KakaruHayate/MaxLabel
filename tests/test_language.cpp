@@ -67,6 +67,25 @@ static bool parses(const std::string & pfml) {
 }
 
 int main() {
+    // Where the real data files are, captured before they are taken out of
+    // reach below.
+    const std::string data_dir = maxlabel::model_directory();
+
+    // The segmentation tests are about this code, and this code's answers must
+    // not depend on which model happens to be sitting next to the binary.
+    // They did: CI downloads the 916 KB lite detector and the release job
+    // downloads the 125 MB full one, and the two disagree about a short Han
+    // run — so an exact span count passed in CI and failed on all three
+    // platforms in the release.  A test whose result depends on the contents
+    // of a directory is not a test.
+    //
+    // So the default context — the one `scan` builds a segment with — is
+    // pointed at an empty directory: script detection only, nothing to
+    // download, the same answer everywhere.  What a detector adds is asserted
+    // on its own below, against whichever model is actually present.
+    maxlabel::set_model_directory(
+        (fs::temp_directory_path() / "maxlabel_no_models").string());
+
     // --- the language table -------------------------------------------------
     {
         const maxlabel::LanguageTable & table = maxlabel::LanguageTable::builtin();
@@ -201,14 +220,26 @@ int main() {
     // reason to ship one, so it is the thing worth asserting.
 #ifdef MAXLABEL_HAS_FASTTEXT
     {
+        // Whichever detector the build environment has: the release ships the
+        // full model and CI keeps the lite one, and both have to answer this.
         maxlabel::FastTextDetector detector;
         std::string why;
-        if (detector.load(maxlabel::model_directory() + "/lid.176.ftz", &why)) {
+        const bool loaded = detector.load(data_dir + "/lid.176.bin", &why) ||
+                            detector.load(data_dir + "/lid.176.ftz", &why);
+        if (loaded) {
             const maxlabel::SegmentationContext context{ &detector, nullptr, nullptr };
             const std::vector<LangSpan> spans =
                 maxlabel::detect_languages("東京", "", context);
-            check(langs(spans) == "ja",
-                  "fastText: a kanji-only run is answered by the model, not assumed Chinese");
+            // Not "says ja" — which of zh/ja a bare 東京 is belongs to the
+            // model, and the two shipped models need not agree.  What matters
+            // is that a detector means it gets answered at all rather than
+            // being left undetermined for a person to settle.
+            bool decided = !spans.empty();
+            for (const LangSpan & span : spans) {
+                if (span.language.empty()) decided = false;
+            }
+            check(decided,
+                  "fastText: a kanji-only run is answered by the model, not left undetermined");
             check(tiles("東京", spans), "fastText: the spans tile the text");
 
             // And it must not disturb what the script already settles.
