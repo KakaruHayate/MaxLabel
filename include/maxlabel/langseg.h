@@ -23,6 +23,9 @@
 //     Han-only runs fall through to the unknown chain — which resolves them to
 //     Chinese, exactly as the original does when the model is unsure.
 
+#include "maxlabel/budoux.h"
+#include "maxlabel/language.h"
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -53,12 +56,34 @@ public:
     std::string detect(const std::string & text) const override;
 };
 
+// What the pipeline needs to run: the detector for what the rules cannot
+// settle, and the BudouX models for sub-splitting a Chinese or Japanese run.
+// Any of them may be absent, and the pipeline degrades rather than fails.
+struct SegmentationContext {
+    const LangDetector * detector = nullptr;
+    const BudouX * japanese = nullptr;   // applied to a zh/ja run first
+    const BudouX * chinese = nullptr;    // then to each chunk of that
+};
+
+// The context the tool uses by default: the script detector, and the BudouX
+// models found in the model directory (see models.h).  Loaded once, on first
+// use, so a missing model directory costs nothing until something asks.
+const SegmentationContext & default_segmentation_context();
+
 // The GPT-SoVITS pipeline.  `default_lang` is its `default_lang` argument:
 // non-empty forces every non-English, non-digit piece to that language, which
 // is what the tool does when the project's language is known.
 std::vector<LangPiece> segment_languages(const std::string & text,
                                          const std::string & default_lang,
-                                         const LangDetector & detector);
+                                         const SegmentationContext & context);
+
+// The spans for `text` under an explicit context.  `detect_languages` in
+// language.h is this with the default context; this overload is what pins the
+// pipeline's own behaviour in tests, without depending on which models happen
+// to be installed on the machine.
+std::vector<LangSpan> detect_languages(const std::string & text,
+                                       const std::string & default_lang,
+                                       const SegmentationContext & context);
 
 // `full_en` / `full_cjk` / `split_jako`, exposed because they are the parts
 // worth testing on their own.

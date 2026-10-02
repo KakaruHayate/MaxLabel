@@ -7,7 +7,14 @@
 
 #include "maxlabel/langseg.h"
 
+#include "maxlabel/languages.h"
+#include "maxlabel/models.h"
+#ifdef MAXLABEL_HAS_FASTTEXT
+#include "maxlabel/fasttext_detector.h"
+#endif
+
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -139,13 +146,73 @@ bool ends_with_stop(const std::string & text) {
     return text.size() >= 3 && text.compare(text.size() - 3, 3, "\xE3\x80\x82") == 0;
 }
 
-// GPT-SoVITS's DEFAULT_LANG_MAP, applied to whatever the detector returns:
-// it speaks zh/ja/ko/en, and traditional Chinese it deliberately sends to the
-// unknown chain rather than claiming it is Mandarin.
-std::string map_language(const std::string & lang) {
-    if (lang == "zh" || lang == "yue" || lang == "wuu" || lang == "zh-cn") return "zh";
-    if (lang == "zh-tw") return "x";
-    return lang;
+// The language a detector's answer maps to, or "x" when the table has no home
+// for it.  The mapping is data (languages.h), which is what keeps traditional
+// Chinese unresolved instead of claimed as Mandarin, and what makes adding a
+// language a one-line change.
+std::string map_language(const std::string & detected) {
+    if (detected.empty() || detected == "x") return "x";
+    const LanguageInfo * language = LanguageTable::builtin().for_detector_id(detected);
+    return language == nullptr ? "x" : language->id;
+}
+
+// What a detector says about a run, mapped onto our own ids; "x" when there is
+// no detector, or no home for its answer.
+std::string detect(const SegmentationContext & context, const std::string & run) {
+    // `full_en` is decided here rather than only in getTexts, because a run it
+    // would have claimed must not first be merged into a neighbouring unknown:
+    // two unknowns are not known to be the same language.
+    if (is_full_en(run)) return "en";
+    if (context.detector == nullptr) return "x";
+    return map_language(context.detector->detect(run));
+}
+
+// The original's `full_cjk` keeps only the CJK characters of a run, which for
+// the runs it is applied to (Han sections) is everything.  Applied to a run
+// that also holds something else it would silently drop the rest — and the
+// pieces have to reconstruct the transcript — so the remainder is kept as an
+// unknown run rather than discarded.
+std::vector<LangPiece> cjk_and_rest(const LangPiece & piece) {
+    std::vector<LangPiece> out;
+    std::string current;
+    bool current_is_cjk = false;
+    const auto flush = [&] {
+        if (current.empty()) return;
+        out.push_back(LangPiece{ current_is_cjk ? "zh" : "x", current });
+        current.clear();
+    };
+
+    std::size_t i = 0;
+    while (i < piece.text.size()) {
+        const std::size_t at = i;
+        const char32_t c = decode(piece.text, i);
+        const bool keep = is_cjk_ideograph(c) || is_cjk_keep(c);
+        if (!current.empty() && keep != current_is_cjk) flush();
+        current_is_cjk = keep;
+        current += piece.text.substr(at, i - at);
+    }
+    flush();
+    return out;
+}
+
+// split-lang's `_parse_zh_ja`: the Japanese parser first, then the Chinese one
+// on each of its chunks.  The point is that the detector sees word-sized
+// pieces, which is what it is good at, rather than a whole run.
+std::vector<std::string> sub_split_zh_ja(const std::string & run,
+                                         const SegmentationContext & context) {
+    if (context.japanese != nullptr && context.japanese->ready()) {
+        std::vector<std::string> chunks = context.japanese->parse(run);
+        if (context.chinese != nullptr && context.chinese->ready()) {
+            std::vector<std::string> refined;
+            for (const std::string & chunk : chunks) {
+                const std::vector<std::string> pieces = context.chinese->parse(chunk);
+                refined.insert(refined.end(), pieces.begin(), pieces.end());
+            }
+            chunks = std::move(refined);
+        }
+        if (!chunks.empty()) return chunks;
+    }
+    return { run };
 }
 
 // append to the previous piece when the language matches, exactly as
@@ -280,7 +347,7 @@ std::string ScriptDetector::detect(const std::string & text) const {
 
 std::vector<LangPiece> segment_languages(const std::string & text,
                                          const std::string & default_lang,
-                                         const LangDetector & detector) {
+                                         const SegmentationContext & context) {
     if (text.empty()) return {};
 
     // --- pre-split, then label each run -------------------------------------
@@ -307,17 +374,28 @@ std::vector<LangPiece> segment_languages(const std::string & text,
 
         std::string lang;
         if (is_zh_ja(first)) {
-            lang = contains_ja_kana(run) ? "ja" : map_language(detector.detect(run));
-        } else if (is_hangul(first)) {
-            lang = "ko";
-        } else if (is_digit(first)) {
-            lang = "digit";
-        } else if (is_space(first) || is_newline(first)) {
-            lang = "";   // neutral: folded into a neighbour below
+            if (contains_ja_kana(run)) {
+                // split-lang decides a zh/ja section by whether kana appears in
+                // it, so a run containing kana is Japanese whole.  (Its own
+                // kana re-merge pass exists to reach this same answer after
+                // sub-splitting; deciding the run directly is the same result
+                // without the round trip.)
+                pieces.push_back(LangPiece{ "ja", run });
+            } else {
+                // Pure Han: sub-split so the detector sees words, then let it
+                // answer for each.  Without a detector every piece falls to the
+                // unknown chain, which is where the Chinese assumption lives.
+                for (const std::string & chunk : sub_split_zh_ja(run, context)) {
+                    pieces.push_back(LangPiece{ detect(context, chunk), chunk });
+                }
+            }
         } else {
-            lang = map_language(detector.detect(run));
+            if (is_hangul(first)) lang = "ko";
+            else if (is_digit(first)) lang = "digit";
+            else if (is_space(first) || is_newline(first)) lang = "";  // neutral
+            else lang = detect(context, run);
+            pieces.push_back(LangPiece{ lang, run });
         }
-        pieces.push_back(LangPiece{ lang, run });
         i = end;
     }
 
@@ -342,6 +420,13 @@ std::vector<LangPiece> segment_languages(const std::string & text,
         }
         merged.back().text += pieces[k].text;
     }
+
+#ifdef MAXLABEL_DEBUG_SEGMENT
+    for (const LangPiece & p : pieces)
+        std::fprintf(stderr, "  pre    [%s] %s\n", p.lang.c_str(), p.text.c_str());
+    for (const LangPiece & p : merged)
+        std::fprintf(stderr, "  merged [%s] %s\n", p.lang.c_str(), p.text.c_str());
+#endif
 
     // --- GPT-SoVITS's getTexts ---------------------------------------------
     std::vector<LangPiece> lang_list;
@@ -390,9 +475,13 @@ std::vector<LangPiece> segment_languages(const std::string & text,
             }
             // Unknown: if it is Han, it is Chinese — that is the original's
             // answer, and the reason a Chinese dataset needs no manual work.
-            const std::string cjk = keep_cjk(temp_item.text);
-            if (!cjk.empty()) merge_piece(lang_list, LangPiece{ "zh", cjk });
-            else merge_piece(lang_list, temp_item);
+            if (keep_cjk(temp_item.text).empty()) {
+                merge_piece(lang_list, temp_item);
+                continue;
+            }
+            for (const LangPiece & part : cjk_and_rest(temp_item)) {
+                merge_piece(lang_list, part);
+            }
         }
     }
 
@@ -458,10 +547,53 @@ std::vector<LangPiece> segment_languages(const std::string & text,
     {
         std::string joined;
         for (const LangPiece & piece : lang_list) joined += piece.text;
-        if (joined != text) return { LangPiece{ std::string(), text } };
+        if (joined != text) {
+#if 1
+            std::fprintf(stderr, "segment: reconstruction failed for [%s]\n", text.c_str());
+            for (const LangPiece & piece : lang_list) {
+                std::fprintf(stderr, "  [%s] %s\n", piece.lang.c_str(), piece.text.c_str());
+            }
+#endif
+            return { LangPiece{ std::string(), text } };
+        }
     }
 
     return lang_list;
+}
+
+const SegmentationContext & default_segmentation_context() {
+    // Loaded once, on first use.  Anything missing degrades rather than fails:
+    // no detector leaves the unknown chain to answer (which reads as Chinese),
+    // and no BudouX models means a run is not sub-split — coarser, not broken.
+    static const ScriptDetector script;
+#ifdef MAXLABEL_HAS_FASTTEXT
+    static const FastTextDetector fasttext = [] {
+        FastTextDetector detector;
+        // split-lang asks for "full"; prefer it when both are present, and
+        // fall back to the compressed one rather than losing detection.
+        if (!detector.load(model_directory() + "/lid.176.bin")) {
+            detector.load(model_directory() + "/lid.176.ftz");
+        }
+        return detector;
+    }();
+#endif
+    static const BudouX japanese = [] {
+        BudouX parser;
+        parser.load(model_directory() + "/budoux/ja.json");
+        return parser;
+    }();
+    static const BudouX chinese = [] {
+        BudouX parser;
+        parser.load(model_directory() + "/budoux/zh-hans.json");
+        return parser;
+    }();
+
+    static const LangDetector * detector = &script;
+#ifdef MAXLABEL_HAS_FASTTEXT
+    if (fasttext.ready()) detector = &fasttext;
+#endif
+    static const SegmentationContext context{ detector, &japanese, &chinese };
+    return context;
 }
 
 }  // namespace maxlabel

@@ -25,6 +25,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The detector's weights are not committed: 916 KB here (the "lite"
+      # variant, for speed), 125 MB for "full" in the release, and CC BY-SA
+      # 3.0 either way.  Without it the fastText path would be compiled but
+      # never exercised.
+      - name: Fetch the language-detection model
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sSL --retry 3 -o models/lid.176.ftz https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz
+
       - name: Configure
         run: >
           cmake -S . -B build
@@ -68,6 +78,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Fetch the language-detection model
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sSL --retry 3 -o models/lid.176.ftz https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz
 
       - name: Install Qt6 (Linux)
         if: runner.os == 'Linux'

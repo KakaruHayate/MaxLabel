@@ -6,6 +6,7 @@
 
 #include "maxlabel/language.h"
 
+#include "maxlabel/languages.h"
 #include "maxlabel/langseg.h"
 
 #include <string>
@@ -14,28 +15,20 @@
 
 namespace maxlabel {
 
-namespace {
-
-// The languages MaxLabel can route.  Anything else is reported as undetermined
-// rather than asserted — the aligner has no converter for it either way, and
-// guessing would only produce plausible wrong phonemes.
-bool is_routable(const std::string & language) {
-    return language == "zh" || language == "yue" || language == "ja" ||
-           language == "ko" || language == "en";
-}
-
-}  // namespace
-
 std::vector<LangSpan> detect_languages(const std::string & text,
                                        const std::string & default_language) {
-    // The script fallback: it settles kana and hangul on its own and defers
-    // everything else to the pipeline's own chains.  Swapping in a fastText
-    // detector here is the whole of what the model changes.
-    static const ScriptDetector detector;
+    // The default context: the script fallback or a fastText model if one is
+    // installed, plus the BudouX models if they are where the tool expects
+    // them.
+    return detect_languages(text, default_language, default_segmentation_context());
+}
 
+std::vector<LangSpan> detect_languages(const std::string & text,
+                                       const std::string & default_language,
+                                       const SegmentationContext & context) {
     std::vector<LangSpan> spans;
     std::size_t at = 0;
-    for (const LangPiece & piece : segment_languages(text, default_language, detector)) {
+    for (const LangPiece & piece : segment_languages(text, default_language, context)) {
         if (piece.text.empty()) continue;
 
         LangSpan span;
@@ -43,7 +36,10 @@ std::vector<LangSpan> detect_languages(const std::string & text,
         span.end = at + piece.text.size();
         at = span.end;
 
-        const bool routable = is_routable(piece.lang);
+        // A language the table does not know is reported as undetermined
+        // rather than asserted: the aligner has no converter for it either
+        // way, and guessing would only produce plausible wrong phonemes.
+        const bool routable = LanguageTable::builtin().knows(piece.lang);
         span.language = routable ? piece.lang : std::string();
         span.ambiguous = !routable;
 

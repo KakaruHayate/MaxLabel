@@ -8,6 +8,8 @@
 
 #include "MainWindow.h"
 
+#include "maxlabel/models.h"
+
 #include <QApplication>
 #include <QStringList>
 
@@ -16,6 +18,10 @@ int main(int argc, char ** argv) {
     QApplication::setApplicationName(QStringLiteral("MaxLabel"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
     QApplication::setOrganizationName(QStringLiteral("MaxLabel"));
+
+    // A release ships its data files beside the binary; a development build
+    // keeps the compiled-in default, which is the source tree.
+    maxlabel::use_bundled_models(argc > 0 ? argv[0] : "");
 
     const QStringList arguments = QApplication::arguments();
     QString directory;
@@ -31,6 +37,8 @@ int main(int argc, char ** argv) {
             g2pConfig = arguments.at(++i);
         } else if (argument == QLatin1String("--dicts") && has_value) {
             dictionaries = arguments.at(++i);
+        } else if (argument == QLatin1String("--models") && has_value) {
+            maxlabel::set_model_directory(arguments.at(++i).toStdString());
         } else if (directory.isEmpty() && !argument.startsWith(QLatin1String("--"))) {
             directory = argument;
         }

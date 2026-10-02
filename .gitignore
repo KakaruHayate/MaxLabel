@@ -71,3 +71,8 @@ Testing/
 # Planning notes are kept local: they read as meeting minutes (they quote the
 # discussion) rather than as published documentation.
 /docs/
+
+# The language-detection model: 916 KB (lite) or 125 MB (full), and its weights
+# are CC BY-SA 3.0 even though fastText's code is MIT.  Downloaded by CI and
+# bundled into releases rather than committed.
+models/lid.176.*

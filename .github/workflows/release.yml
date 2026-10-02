@@ -31,6 +31,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # "full" is what split-lang asks for.  It is 125 MB, which is why it is
+      # fetched here and bundled rather than committed; its weights are
+      # CC BY-SA 3.0 (fastText's code is MIT).
+      - name: Fetch the language-detection model
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -sSL --retry 3 -o models/lid.176.bin https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
+
       - name: Install Qt6 (Linux)
         if: runner.os == 'Linux'
         # The distro package: install-qt-action downloads several gigabytes and
@@ -100,6 +109,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item README.md, LICENSE "$env:BIN"
+          Copy-Item -Recurse -Force models "$env:BIN/models"
           Compress-Archive -Path "$env:BIN/*" -DestinationPath "MaxLabel-${{ matrix.name }}.zip"
 
       - name: Package (tar.gz)
@@ -107,6 +117,7 @@ jobs:
         shell: bash
         run: |
           cp README.md LICENSE "$BIN/"
+          cp -r models "$BIN/models"
           tar -czf "MaxLabel-${{ matrix.name }}.tar.gz" -C "$BIN" .
 
       - name: Attach to the release

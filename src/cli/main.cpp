@@ -6,6 +6,7 @@
 #include "maxlabel/core.h"
 #include "maxlabel/g2p_context.h"
 #include "maxlabel/language.h"
+#include "maxlabel/models.h"
 #include "maxlabel/vocabulary.h"
 
 #include "tifa_ggml/g2p.h"
@@ -263,7 +264,18 @@ int main(int argc, char ** argv) {
     // tool whose whole job is CJK transcripts unreadable.
     SetConsoleOutputCP(CP_UTF8);
 #endif
+    // A release ships its data files beside the binary; a development build
+    // keeps the compiled-in default, which is the source tree.
+    maxlabel::use_bundled_models(argc > 0 ? argv[0] : "");
+
     const std::vector<std::string> args(argv + 1, argv + argc);
+
+    // A global option: where the data files (the BudouX models, the detector
+    // weights) are looked up.
+    for (std::size_t i = 0; i + 1 < args.size(); ++i) {
+        if (args[i] == "--models") maxlabel::set_model_directory(args[i + 1]);
+    }
+
     if (args.empty() || args[0] == "-h" || args[0] == "--help") {
         usage();
         return args.empty() ? 2 : 0;

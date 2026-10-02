@@ -3,6 +3,8 @@
 #include "AudioPanel.h"
 #include "PronunciationDialog.h"
 
+#include "maxlabel/languages.h"
+
 #include <QAction>
 #include <QColor>
 #include <QFileDialog>
@@ -165,22 +167,19 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     toolbar->addAction(tr("·  set language of selection:"));
 
     // Digit keys set the language of the selection — the manual half of the
-    // segmentation, and the reason the ambiguity highlight exists.
-    QAction * zh = toolbar->addAction(tr("1 zh"));
-    zh->setShortcut(QKeySequence(Qt::Key_1));
-    connect(zh, &QAction::triggered, this, &MainWindow::setSelectionLanguageZh);
-
-    QAction * ja = toolbar->addAction(tr("2 ja"));
-    ja->setShortcut(QKeySequence(Qt::Key_2));
-    connect(ja, &QAction::triggered, this, &MainWindow::setSelectionLanguageJa);
-
-    QAction * en = toolbar->addAction(tr("3 en"));
-    en->setShortcut(QKeySequence(Qt::Key_3));
-    connect(en, &QAction::triggered, this, &MainWindow::setSelectionLanguageEn);
-
-    QAction * ko = toolbar->addAction(tr("4 ko"));
-    ko->setShortcut(QKeySequence(Qt::Key_4));
-    connect(ko, &QAction::triggered, this, &MainWindow::setSelectionLanguageKo);
+    // segmentation, and the reason the ambiguity highlight exists.  Built from
+    // the language table, so supporting another language is one entry there
+    // rather than an edit here.
+    for (const maxlabel::LanguageInfo & language : maxlabel::LanguageTable::builtin().all()) {
+        const QString id = QString::fromStdString(language.id);
+        QAction * action = toolbar->addAction(
+            QStringLiteral("%1 %2").arg(QChar(language.shortcut)).arg(id));
+        if (language.shortcut != '\0') {
+            action->setShortcut(QKeySequence(QString(QChar(language.shortcut))));
+        }
+        action->setToolTip(QString::fromStdString(language.label));
+        connect(action, &QAction::triggered, this, [this, id]() { setSelectionLanguage(id); });
+    }
 
     // --- central widget -----------------------------------------------------
     QSplitter * splitter = new QSplitter(this);
@@ -610,11 +609,6 @@ void MainWindow::setSelectionLanguage(const QString & language) {
     refreshPreview();
     refreshStatus();
 }
-
-void MainWindow::setSelectionLanguageZh() { setSelectionLanguage(QStringLiteral("zh")); }
-void MainWindow::setSelectionLanguageJa() { setSelectionLanguage(QStringLiteral("ja")); }
-void MainWindow::setSelectionLanguageEn() { setSelectionLanguage(QStringLiteral("en")); }
-void MainWindow::setSelectionLanguageKo() { setSelectionLanguage(QStringLiteral("ko")); }
 
 bool MainWindow::commitCurrent(bool quiet) {
     maxlabel::Segment * segment = currentSegment();

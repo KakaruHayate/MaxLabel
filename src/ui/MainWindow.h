@@ -59,10 +59,6 @@ private slots:
     void pinPronunciation();
     void insertPhonemes();
     void clearOverrides();
-    void setSelectionLanguageZh();
-    void setSelectionLanguageJa();
-    void setSelectionLanguageEn();
-    void setSelectionLanguageKo();
 
 private:
     void setSelectionLanguage(const QString & language);

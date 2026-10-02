@@ -1,8 +1,13 @@
 // Self-checking test for language segmentation (the GPT-SoVITS pipeline).
 
 #include "maxlabel/core.h"
+#include "maxlabel/languages.h"
 #include "maxlabel/langseg.h"
 #include "maxlabel/language.h"
+#include "maxlabel/models.h"
+#ifdef MAXLABEL_HAS_FASTTEXT
+#include "maxlabel/fasttext_detector.h"
+#endif
 
 #include <filesystem>
 #include <fstream>
@@ -12,6 +17,16 @@
 
 namespace fs = std::filesystem;
 using maxlabel::LangSpan;
+
+// The pipeline with the script detector and no BudouX models.  Deterministic,
+// which is what makes it testable: what a fastText model answers is a property
+// of the model rather than of this code, and is asserted separately below.
+static std::vector<LangSpan> segment_script_only(const std::string & text,
+                                                 const std::string & default_language) {
+    static const maxlabel::ScriptDetector detector;
+    static const maxlabel::SegmentationContext context{ &detector, nullptr, nullptr };
+    return maxlabel::detect_languages(text, default_language, context);
+}
 
 static int failures = 0;
 
@@ -52,6 +67,44 @@ static bool parses(const std::string & pfml) {
 }
 
 int main() {
+    // --- the language table -------------------------------------------------
+    {
+        const maxlabel::LanguageTable & table = maxlabel::LanguageTable::builtin();
+        check(table.knows("zh") && table.knows("ja") && table.knows("en") &&
+                  table.knows("ko") && table.knows("yue"),
+              "table: the five languages are known");
+        check(!table.knows("de"), "table: an unknown language is not routable");
+
+        // The mapping is data, and this is what it buys: adding a language is
+        // an entry, not a branch.
+        check(table.for_detector_id("zh-cn") != nullptr &&
+                  table.for_detector_id("zh-cn")->id == "zh",
+              "table: a detector variant maps to its language");
+        check(table.for_detector_id("yue") != nullptr &&
+                  table.for_detector_id("yue")->id == "zh",
+              "table: the source pipeline folds Cantonese into Chinese");
+        check(table.for_detector_id("zh-tw") == nullptr,
+              "table: traditional Chinese has no home, so it stays unknown");
+        check(table.for_detector_id("de") == nullptr,
+              "table: a language we do not route stays unknown");
+
+        // Shortcut keys are unique, or two languages would fight over one.
+        std::string keys;
+        for (const maxlabel::LanguageInfo & language : table.all()) {
+            if (language.shortcut == '\0') continue;
+            check(keys.find(language.shortcut) == std::string::npos,
+                  std::string("table: shortcut '") + language.shortcut + "' is unique");
+            keys += language.shortcut;
+        }
+
+        // Extending it works, and does not disturb the built-in one.
+        maxlabel::LanguageTable extended;
+        extended.add(maxlabel::LanguageInfo{ "de", "German", { "de", "deu" }, '6' });
+        check(extended.for_detector_id("deu") != nullptr, "table: an added language maps");
+        check(maxlabel::LanguageTable::builtin().for_detector_id("de") == nullptr,
+              "table: the built-in table is unchanged by a copy");
+    }
+
     // --- the pieces the pipeline is built from ------------------------------
     check(maxlabel::is_full_en("hello world"), "full_en: plain english");
     check(maxlabel::is_full_en("I"), "full_en: a single letter counts");
@@ -81,14 +134,14 @@ int main() {
     }
 
     // --- script that settles itself -----------------------------------------
-    check(langs(maxlabel::detect_languages("안녕", "")) == "ko", "hangul -> ko");
-    check(langs(maxlabel::detect_languages("hello", "")) == "en", "latin -> en");
+    check(langs(segment_script_only("안녕", "")) == "ko", "hangul -> ko");
+    check(langs(segment_script_only("hello", "")) == "en", "latin -> en");
 
     // A run with kana is Japanese: split-lang groups Han and kana into one
     // section and decides the whole thing by whether kana is present.  This is
     // the case that made the previous script-by-script split useless.
     {
-        const std::vector<LangSpan> spans = maxlabel::detect_languages("東京へ行く", "");
+        const std::vector<LangSpan> spans = segment_script_only("東京へ行く", "");
         check(langs(spans) == "ja", "kanji + kana -> the whole run is ja");
         check(!maxlabel::has_undetermined(spans), "kanji + kana -> decided, nothing to review");
         check(tiles("東京へ行く", spans), "kanji + kana -> spans tile the text");
@@ -99,16 +152,16 @@ int main() {
     // deliberate assumption, and it is what the model would replace with a real
     // answer.
     {
-        const std::vector<LangSpan> spans = maxlabel::detect_languages("東京", "");
+        const std::vector<LangSpan> spans = segment_script_only("東京", "");
         check(langs(spans) == "zh", "pure han, no detector -> zh via the unknown chain");
         check(!maxlabel::has_undetermined(spans), "pure han -> no longer flagged for review");
     }
-    check(langs(maxlabel::detect_languages("你好世界", "zh")) == "zh", "han with -l zh -> zh");
+    check(langs(segment_script_only("你好世界", "zh")) == "zh", "han with -l zh -> zh");
 
     // The common case the user called out: Chinese with an English phrase.
     {
         const std::string text = "今天天气不错 I love you";
-        const std::vector<LangSpan> spans = maxlabel::detect_languages(text, "zh");
+        const std::vector<LangSpan> spans = segment_script_only(text, "zh");
         check(langs(spans) == "zh,en", "chinese + english -> zh then en");
         check(tiles(text, spans), "chinese + english -> spans tile the text");
         check(!maxlabel::has_undetermined(spans), "chinese + english -> fully determined");
@@ -117,7 +170,7 @@ int main() {
     // Digits are resolved against their neighbours, as the original does.
     {
         const std::string text = "衬衫的价格是9.15便士";
-        const std::vector<LangSpan> spans = maxlabel::detect_languages(text, "");
+        const std::vector<LangSpan> spans = segment_script_only(text, "");
         check(langs(spans) == "zh", "digits inside han resolve to zh and merge");
         check(tiles(text, spans), "digits -> spans tile the text");
     }
@@ -125,7 +178,7 @@ int main() {
     // -l forces everything but English, which is the "I know this dataset" case.
     {
         const std::string text = "今天天气不错 I love you";
-        const std::vector<LangSpan> spans = maxlabel::detect_languages(text, "yue");
+        const std::vector<LangSpan> spans = segment_script_only(text, "yue");
         check(langs(spans) == "yue,en", "-l yue -> the han run is yue, english stays english");
     }
 
@@ -141,6 +194,32 @@ int main() {
         check(pfml.find("&lt;hi>") != std::string::npos, "pfml: markup in the text is escaped");
         check(parses(pfml), "pfml: escaped text parses");
     }
+
+    // --- with a detector model, when one is installed -----------------------
+    // The model is the only thing that can answer for a Han-only run; without
+    // it the unknown chain reads as Chinese.  That difference is the whole
+    // reason to ship one, so it is the thing worth asserting.
+#ifdef MAXLABEL_HAS_FASTTEXT
+    {
+        maxlabel::FastTextDetector detector;
+        std::string why;
+        if (detector.load(maxlabel::model_directory() + "/lid.176.ftz", &why)) {
+            const maxlabel::SegmentationContext context{ &detector, nullptr, nullptr };
+            const std::vector<LangSpan> spans =
+                maxlabel::detect_languages("東京", "", context);
+            check(langs(spans) == "ja",
+                  "fastText: a kanji-only run is answered by the model, not assumed Chinese");
+            check(tiles("東京", spans), "fastText: the spans tile the text");
+
+            // And it must not disturb what the script already settles.
+            const std::vector<LangSpan> kana =
+                maxlabel::detect_languages("東京へ行く", "", context);
+            check(langs(kana) == "ja", "fastText: a run with kana is still ja");
+        } else {
+            std::cout << "skip: no detector model (" << why << ")\n";
+        }
+    }
+#endif
 
     // --- segment level ------------------------------------------------------
     {
