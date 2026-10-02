@@ -8,6 +8,8 @@
 // is the one the aligner uses (.pfml, then .txt, then .lab); PFML is the only
 // file this tool writes.
 
+#include "maxlabel/language.h"
+
 #include <string>
 #include <vector>
 
@@ -31,6 +33,14 @@ struct Segment {
     std::string text;        // the lyric line, for display and editing
     std::string lab;         // the legacy syllable line, when there was one
     bool        reviewed = false;   // MinLabel's json "isCheck"
+
+    // What a Han run falls back to.  Empty means "undetermined", which is the
+    // honest answer for a pure-kanji line: see language.h.
+    std::string default_language;
+
+    // Language spans over `text`.  Empty for a .pfml source, whose language is
+    // already written into the fragment.
+    std::vector<LangSpan> spans;
 
     // The editable content.  Empty when the segment has no text yet (audio
     // only, waiting to be typed in).
@@ -58,6 +68,21 @@ void load(Segment & segment);
 // Validate `segment.pfml` and write it to <id>.pfml.  Throws
 // tifa_ggml::InvalidArgument when the fragment does not parse.
 void save(const Segment & segment);
+
+// (Re)detect `segment.spans` from `text` + `default_language`.  This discards
+// any manual spans, so it is what a "re-split" action calls.
+void detect_spans(Segment & segment);
+
+// Pin the language of the run covering [begin, end) and regenerate the PFML.
+// This is the manual override the whole segmentation design exists to feed:
+// the automatic pass decides kana/hangul/latin, a human decides the Han.
+// Out-of-range or empty ranges are ignored.
+void set_span_language(Segment & segment, std::size_t begin, std::size_t end,
+                       const std::string & language);
+
+// Regenerate `segment.pfml` from `text` + `spans`.  A no-op for a segment with
+// no spans (a .pfml source keeps the fragment it was loaded from).
+void rebuild_pfml(Segment & segment);
 
 // Parse-only PFML validation.  Throws tifa_ggml::InvalidArgument carrying the
 // byte offset when the fragment is malformed.

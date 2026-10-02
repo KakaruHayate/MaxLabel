@@ -192,20 +192,35 @@ bool has_undetermined(const std::vector<LangSpan> & spans) {
 
 std::string spans_to_pfml(const std::string & text, const std::vector<LangSpan> & spans) {
     std::string out;
-    for (const LangSpan & span : spans) {
-        if (span.begin >= span.end || span.end > text.size()) continue;
-        const std::string run = escape_text(text.substr(span.begin, span.end - span.begin));
-        if (span.language.empty()) {
-            out += run;
+    std::size_t i = 0;
+    while (i < spans.size()) {
+        const LangSpan & span = spans[i];
+        if (span.begin >= span.end || span.end > text.size()) {
+            ++i;
             continue;
         }
-        // Extend over the following same-language span instead of emitting two
-        // adjacent scopes.
+        if (span.language.empty()) {
+            // An undetermined run stays bare text: valid PFML that says "no
+            // language here", rather than a scope asserting a wrong one.
+            out += escape_text(text.substr(span.begin, span.end - span.begin));
+            ++i;
+            continue;
+        }
+        // Absorb the following spans that resolved to the same language, so a
+        // run split by the detector does not become two adjacent scopes.
+        std::size_t end = span.end;
+        std::size_t next = i + 1;
+        while (next < spans.size() && spans[next].language == span.language &&
+               spans[next].begin == end && spans[next].end > spans[next].begin) {
+            end = spans[next].end;
+            ++next;
+        }
         out += "<scope language=\"";
         out += span.language;
         out += "\">";
-        out += run;
+        out += escape_text(text.substr(span.begin, end - span.begin));
         out += "</scope>";
+        i = next;
     }
     return out;
 }

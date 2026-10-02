@@ -288,6 +288,7 @@ void load(Segment & segment) {
     segment.text.clear();
     segment.lab.clear();
     segment.reviewed   = false;
+    segment.spans.clear();
     segment.pfml.clear();
     segment.pfml_valid = true;
     segment.error.clear();
@@ -312,21 +313,28 @@ void load(Segment & segment) {
     // LyricFA's json carries the matched lyric text, which beats a bare
     // syllable line, so it sits between the two.
     if (!segment.pfml_path.empty()) {
+        // Already markup: its language is written into the fragment, so there
+        // is nothing to detect and the file is passed through as it stands.
         segment.pfml   = trim(read_file(segment.pfml_path));
         segment.text   = segment.pfml;
         segment.source = TextSource::Pfml;
-    } else if (!json_text.empty()) {
-        segment.text   = json_text;
-        segment.pfml   = escape_text(json_text);
-        segment.source = TextSource::Json;
-    } else if (!segment.txt_path.empty()) {
-        segment.text   = trim(read_file(segment.txt_path));
-        segment.pfml   = escape_text(segment.text);
-        segment.source = TextSource::Text;
-    } else if (!segment.lab_path.empty()) {
-        segment.text   = trim(read_file(segment.lab_path));
-        segment.pfml   = escape_text(segment.text);
-        segment.source = TextSource::Lab;
+    } else {
+        if (!json_text.empty()) {
+            segment.text   = json_text;
+            segment.source = TextSource::Json;
+        } else if (!segment.txt_path.empty()) {
+            segment.text   = trim(read_file(segment.txt_path));
+            segment.source = TextSource::Text;
+        } else if (!segment.lab_path.empty()) {
+            segment.text   = trim(read_file(segment.lab_path));
+            segment.source = TextSource::Lab;
+        }
+        if (segment.source != TextSource::None) {
+            // A plain transcript: the language has to be worked out, and the
+            // PFML follows from it.
+            detect_spans(segment);
+            segment.pfml = spans_to_pfml(segment.text, segment.spans);
+        }
     }
 
     if (segment.pfml.empty()) {
@@ -369,6 +377,57 @@ std::string escape_text(const std::string & text) {
         else out.push_back(c);
     }
     return out;
+}
+
+void detect_spans(Segment & segment) {
+    segment.spans = detect_languages(segment.text, segment.default_language);
+}
+
+void rebuild_pfml(Segment & segment) {
+    // A segment with no spans is a .pfml source: its language is already in the
+    // fragment, and regenerating would throw that away.
+    if (segment.spans.empty()) return;
+    segment.pfml = spans_to_pfml(segment.text, segment.spans);
+}
+
+void set_span_language(Segment & segment, std::size_t begin, std::size_t end,
+                       const std::string & language) {
+    if (begin >= end || end > segment.text.size()) return;
+    if (segment.spans.empty()) detect_spans(segment);
+
+    std::vector<LangSpan> updated;
+    updated.reserve(segment.spans.size() + 2);
+    for (const LangSpan & span : segment.spans) {
+        if (span.end <= begin || span.begin >= end) {
+            updated.push_back(span);   // no overlap: untouched
+            continue;
+        }
+        // Overlaps: keep whatever sticks out on either side of the new range,
+        // so the spans still tile the text.
+        if (span.begin < begin) {
+            LangSpan head = span;
+            head.end = begin;
+            updated.push_back(head);
+        }
+        if (span.end > end) {
+            LangSpan tail = span;
+            tail.begin = end;
+            updated.push_back(tail);
+        }
+    }
+
+    LangSpan pinned;
+    pinned.begin     = begin;
+    pinned.end       = end;
+    pinned.language  = language;
+    pinned.manual    = true;
+    pinned.ambiguous = language.empty();
+    updated.push_back(pinned);
+
+    std::sort(updated.begin(), updated.end(),
+              [](const LangSpan & a, const LangSpan & b) { return a.begin < b.begin; });
+    segment.spans = std::move(updated);
+    rebuild_pfml(segment);
 }
 
 }  // namespace maxlabel
