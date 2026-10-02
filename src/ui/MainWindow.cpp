@@ -912,7 +912,14 @@ void MainWindow::loadG2PDirectory(const QString & model_dir) {
         showStatus(tr("No dictionaries in %1").arg(model_dir), "error");
         return;
     }
-    loadG2P(QString::fromStdString(config), model_dir);
+    // The config is text here, not a path: loadG2P is the --g2p <file> variant.
+    std::string error;
+    if (!g2p_.loadConfig(config, model_dir.toStdString(), &error)) {
+        QMessageBox::warning(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
+        return;
+    }
+    refreshStatus();
+    showStatus(tr("Pronunciation candidates loaded"), "ready");
 }
 
 void MainWindow::loadG2P(const QString & config_json, const QString & dictionary_dir) {
