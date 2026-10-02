@@ -9,6 +9,7 @@
 
 #include <QAction>
 #include <QColor>
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QFontDatabase>
 #include <QGridLayout>
