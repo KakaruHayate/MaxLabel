@@ -109,6 +109,23 @@ QPlainTextEdit, QTextEdit {
     selection-color: #ffffff;
 }
 
+/* The two panes that carry the material, set larger than the chrome.
+ *
+ * They have to be sized here rather than with setFont() in C++: the QWidget
+ * rule above already names a font size, and a stylesheet beats setFont for
+ * every property it names — so a setPointSize(18) in the window was being
+ * overridden by that 9pt and silently did nothing.  Which is exactly the bug
+ * where the text kept looking small no matter what the code said.
+ *
+ * The family is named because the fixed font alone has no Han glyphs, and the
+ * face Qt fell back to for them came out at another size again. */
+QPlainTextEdit#editor {
+    font-family: Consolas, "Microsoft YaHei UI", "Sarasa Mono SC", monospace;
+    font-size: 18pt;
+}
+
+RunStrip { font-size: 12pt; }
+
 QPlainTextEdit[readOnly="true"] { color: #9a9a9a; }
 
 /* The PFML pane is editable, and the only pane whose contents can be wrong on

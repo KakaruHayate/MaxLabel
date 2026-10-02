@@ -35,7 +35,7 @@ protected:
     void paintEvent(QPaintEvent * event) override;
 
 private:
-    int tagLane() const;
+    int tagHeight() const;
 
     std::vector<Insertion> insertions_;
 };

@@ -4,7 +4,6 @@
 
 #include <QFontMetrics>
 #include <QPainter>
-#include <QTextBlock>
 #include <QTextCursor>
 
 #include <algorithm>
@@ -19,17 +18,22 @@ const QColor kInsertFill(0x35, 0x28, 0x14, 235);
 }  // namespace
 
 LyricEditor::LyricEditor(QWidget * parent) : QPlainTextEdit(parent) {
-    // An empty lane above the first line for the insertion tags to sit in.
-    // Drawing them in the leading would work for one line and collide with
-    // the line above for two.
-    setViewportMargins(0, tagLane(), 0, 0);
+    // A document margin is the only one of the three ways to reserve space that
+    // actually puts it *inside* the text area, which is where the tag has to
+    // go.  A proportional line height puts the extra space below the text, a
+    // block top margin is silently ignored on a QPlainTextEdit document
+    // (setBlockFormat returns without effect — which is why the first two
+    // attempts at this looked like they had done nothing at all), and a
+    // viewport margin insets the whole viewport without moving the text
+    // relative to it.  All three were tried.
+    document()->setDocumentMargin(tagHeight() + 6);
 }
 
-int LyricEditor::tagLane() const {
+int LyricEditor::tagHeight() const {
     QFont labelFont = font();
     labelFont.setPointSizeF(std::max(7.0, font().pointSizeF() * 0.55));
     labelFont.setBold(true);
-    return QFontMetrics(labelFont).height() + 6;
+    return QFontMetrics(labelFont).height() + 1;
 }
 
 void LyricEditor::setInsertions(const std::vector<Insertion> & insertions) {
@@ -48,6 +52,7 @@ void LyricEditor::paintEvent(QPaintEvent * event) {
     labelFont.setPointSizeF(std::max(7.0, font().pointSizeF() * 0.55));
     labelFont.setBold(true);
     const QFontMetrics metrics(labelFont);
+    const int height = tagHeight();
 
     const int last = std::max(0, document()->characterCount() - 1);
     for (const Insertion & insertion : insertions_) {
@@ -56,17 +61,17 @@ void LyricEditor::paintEvent(QPaintEvent * event) {
         const QRect caret = cursorRect(cursor);
 
         // The bar says where the sound goes; the tag says what it is.  The tag
-        // goes in the lane reserved above the text, so it never covers a
-        // character or the line above.
+        // goes in the margin above the line, which the constructor's document
+        // margin has made room for, so it never covers a character.
         painter.setPen(Qt::NoPen);
         painter.setBrush(kInsertText);
         painter.drawRect(QRect(caret.left(), caret.top(), 2, caret.height()));
 
         const QString text = QStringLiteral("+") + insertion.label;
         const int width = metrics.horizontalAdvance(text) + 8;
-        const int height = metrics.height() + 1;
         const int x = std::min(caret.left() + 3, viewport()->width() - width - 1);
-        const QRect box(x, std::max(0, caret.top() - height - 1), width, height);
+        const int y = std::max(0, caret.top() - height - 1);
+        const QRect box(x, y, width, height);
 
         painter.setBrush(kInsertFill);
         painter.setPen(QPen(kInsertText, 1));

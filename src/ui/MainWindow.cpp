@@ -590,13 +590,8 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     // selects it, which is the whole of the interaction — no dragging across
     // characters that have no boundary to snap to.
     strip_ = new RunStrip;
-    {
-        // A step up from the chrome, but a step below the text itself: the
-        // blocks are an index of the line, not a replacement for it.
-        QFont stripFont = font();
-        stripFont.setPointSize(12);
-        strip_->setFont(stripFont);
-    }
+    // No setFont here either: RunStrip's size is in the theme, for the reason
+    // spelled out at the editor below.
     connect(strip_, &RunStrip::chipClicked, this, &MainWindow::selectChip);
     // Double-click goes straight to the dialog: the common annotation should
     // not need the block clicked and then a button somewhere else.  On an
@@ -646,15 +641,12 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     // would otherwise swallow Ctrl+Z and the history would only be reachable
     // from the rail.
     editor_->installEventFilter(this);
-    // The text is the point of the tool, so it is set larger than the chrome
-    // and with a CJK family named: the fixed font alone has no Han glyphs, and
-    // the fallback Qt picked for them came out at a different size.
-    QFont editorFont;
-    editorFont.setFamilies({QStringLiteral("Consolas"), QStringLiteral("Microsoft YaHei UI"),
-                            QStringLiteral("Sarasa Mono SC"), QStringLiteral("monospace")});
-    editorFont.setPointSize(18);
-    editorFont.setStyleHint(QFont::TypeWriter);
-    editor_->setFont(editorFont);
+    // The size and the family of both text panes live in the theme, not here:
+    // a QWidget rule already names a font size, and a stylesheet wins over
+    // setFont for every property it names — so a setPointSize(18) at this
+    // point was being silently discarded, and read as "the code says 18pt but
+    // it still looks 9pt".  See QPlainTextEdit#editor and RunStrip in
+    // theme.qss.
     editor_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     editor_->setPlaceholderText(tr("The lyric line.  Language is detected per script; "
                                    "select a run and press 1-4 to decide it yourself."));

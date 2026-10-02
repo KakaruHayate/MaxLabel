@@ -44,9 +44,9 @@ QFont RunStrip::readingFont() const {
     return font_;
 }
 
-int RunStrip::labelHeight() const { return QFontMetrics(labelFont()).height() + 10; }
+int RunStrip::labelHeight() const { return QFontMetrics(labelFont()).height() + 4; }
 int RunStrip::readingHeight() const { return QFontMetrics(readingFont()).height() + 2; }
-int RunStrip::rowHeight() const { return labelHeight() + readingHeight() + 6; }
+int RunStrip::rowHeight() const { return labelHeight() + readingHeight() + 8; }
 
 void RunStrip::setChips(const std::vector<Chip> & chips) {
     chips_ = chips;
@@ -219,19 +219,26 @@ void RunStrip::paintEvent(QPaintEvent *) {
             painter.drawRoundedRect(rect.adjusted(0, 0, -1, -1), 3, 3);
         }
 
-        // The character on top, the reading under it: both of what the block
-        // is, in the place where it was clicked.
-        painter.setPen(current ? QColor(0xFF, 0xFF, 0xFF) : QColor(0xE8, 0xE8, 0xE8));
-        painter.setFont(labelFont());
-        const QRect labelRect(rect.x(), rect.y(), rect.width(), labelHeight());
-        painter.drawText(labelRect, Qt::AlignHCenter | Qt::AlignVCenter, chip.label);
-
-        if (!chip.reading.isEmpty()) {
+        // The character, and the reading above it when there is one.  A block
+        // with nothing pinned keeps its character centred in the whole block,
+        // so the row reads as one line of text with readings annotated on top
+        // of it — rather than as characters hanging from the tops of boxes
+        // with an unexplained gap underneath.
+        if (chip.reading.isEmpty()) {
+            painter.setPen(current ? QColor(0xFF, 0xFF, 0xFF) : QColor(0xE8, 0xE8, 0xE8));
+            painter.setFont(labelFont());
+            painter.drawText(rect, Qt::AlignHCenter | Qt::AlignVCenter, chip.label);
+        } else {
             painter.setPen(chip.unknown ? QColor(0xFF, 0xB0, 0xAB) : QColor(0xFF, 0xD9, 0xEC));
             painter.setFont(readingFont());
-            const QRect readingRect(rect.x(), rect.y() + labelHeight(),
-                                    rect.width(), readingHeight());
+            const QRect readingRect(rect.x(), rect.y() + 2, rect.width(), readingHeight());
             painter.drawText(readingRect, Qt::AlignHCenter | Qt::AlignVCenter, chip.reading);
+
+            painter.setPen(current ? QColor(0xFF, 0xFF, 0xFF) : QColor(0xE8, 0xE8, 0xE8));
+            painter.setFont(labelFont());
+            const QRect labelRect(rect.x(), rect.y() + readingHeight() + 2, rect.width(),
+                                  rect.height() - readingHeight() - 2);
+            painter.drawText(labelRect, Qt::AlignHCenter | Qt::AlignVCenter, chip.label);
         }
     }
 }
