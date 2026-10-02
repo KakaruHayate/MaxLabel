@@ -37,8 +37,9 @@ endif()
 # the model, a backend or a GGUF.  A sibling checkout is used when present (the
 # development layout); otherwise the dependency is fetched.
 #
-# The pin is the branch that introduces the public G2P API — move it to a tag
-# once that lands on main.
+# Pinned to a released tag: the public G2P API landed on tifa.cpp's main and is
+# tagged v0.1.2.  A branch pin would break the build if the branch were ever
+# deleted, which is not a risk worth carrying for a one-line dependency.
 # -----------------------------------------------------------------------------
 set(TIFA_GGML_BUILD_MODEL     OFF CACHE BOOL "" FORCE)
 set(TIFA_GGML_BUILD_CLI       OFF CACHE BOOL "" FORCE)
@@ -48,11 +49,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../tifa.cpp/CMakeLists.txt")
     message(STATUS "MaxLabel: using the sibling tifa.cpp checkout")
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../tifa.cpp" tifa.cpp)
 else()
-    message(STATUS "MaxLabel: fetching tifa.cpp")
+    message(STATUS "MaxLabel: fetching tifa.cpp v0.1.2")
     include(FetchContent)
     FetchContent_Declare(tifa_ggml_g2p_src
         GIT_REPOSITORY https://github.com/KakaruHayate/tifa.cpp.git
-        GIT_TAG        feat/g2p-public-api)
+        GIT_TAG        v0.1.2)
     FetchContent_MakeAvailable(tifa_ggml_g2p_src)
 endif()
 
@@ -119,6 +120,11 @@ if(MAXLABEL_BUILD_TESTS)
     target_link_libraries(maxlabel_vocabulary_test PRIVATE MaxLabel::core)
     target_compile_options(maxlabel_vocabulary_test PRIVATE ${MAXLABEL_WARN_FLAGS})
     add_test(NAME maxlabel_vocabulary COMMAND maxlabel_vocabulary_test)
+
+    add_executable(maxlabel_conformance_test tests/test_pfml_conformance.cpp)
+    target_link_libraries(maxlabel_conformance_test PRIVATE MaxLabel::core)
+    target_compile_options(maxlabel_conformance_test PRIVATE ${MAXLABEL_WARN_FLAGS})
+    add_test(NAME maxlabel_pfml_conformance COMMAND maxlabel_conformance_test)
 endif()
 
 # -----------------------------------------------------------------------------
