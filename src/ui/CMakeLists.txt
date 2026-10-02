@@ -12,6 +12,8 @@ add_library(maxlabel_ui STATIC
     MainWindow.h
     Icons.cpp
     Icons.h
+    Resources.cpp
+    Resources.h
     PronunciationDialog.cpp
     PronunciationDialog.h
     resources.qrc

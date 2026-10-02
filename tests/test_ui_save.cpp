@@ -6,11 +6,14 @@
 // wiring is the tool's primary output.  So this drives the real window through
 // the real slot, offscreen.
 
+#include "Icons.h"
+#include "Resources.h"
 #include "MainWindow.h"
 
 #include "maxlabel/core.h"
 
 #include <QApplication>
+#include <QFile>
 #include <QFile>
 #include <QListWidget>
 #include <QMetaObject>
@@ -40,7 +43,18 @@ int main(int argc, char ** argv) {
     // No display on a build machine, and none needed: the window is exercised
     // through its own methods, not through the platform.
     qputenv("QT_QPA_PLATFORM", "offscreen");
+    maxlabel::ui::init_resources();
     QApplication application(argc, argv);
+
+    // The theme and the icons live in resources.qrc, compiled into the
+    // maxlabel_ui static library.  A static library's resource initialiser has
+    // no referenced symbol, so the linker drops it unless main() forces it in —
+    // and the symptom is not a crash, it is an unstyled window with no icons,
+    // which only a human looking at a screenshot notices.  So it is asserted.
+    check(QFile::exists(QStringLiteral(":/theme.qss")), "the theme resource is present");
+    check(QFile::exists(QStringLiteral(":/icons/play.svg")), "the icon resources are present");
+    check(!maxlabel::ui::icon(QStringLiteral("play")).isNull(),
+          "an icon actually renders (the SVG renderer is linked and working)");
 
     QTemporaryDir directory;
     if (!directory.isValid()) {

@@ -8,6 +8,8 @@
 
 #include "MainWindow.h"
 
+#include "Resources.h"
+
 #include "maxlabel/models.h"
 
 #include <QApplication>
@@ -21,6 +23,8 @@
 #include <QTranslator>
 
 int main(int argc, char ** argv) {
+    maxlabel::ui::init_resources();
+
     QApplication application(argc, argv);
     QApplication::setApplicationName(QStringLiteral("MaxLabel"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
