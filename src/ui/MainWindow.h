@@ -79,6 +79,7 @@ private slots:
     void clearWords();
     void pinPronunciation();
     void insertPhonemes();
+    void editInsertion(std::size_t position);
     void clearOverrides();
     void undo();
     void redo();

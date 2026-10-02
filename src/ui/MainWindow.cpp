@@ -594,17 +594,18 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     // spelled out at the editor below.
     connect(strip_, &RunStrip::chipClicked, this, &MainWindow::selectChip);
     // Double-click goes straight to the dialog: the common annotation should
-    // not need the block clicked and then a button somewhere else.  On an
-    // inserted sound the same gesture takes it back out — it has no range to
-    // open a dialog for.
+    // not need the block clicked and then a button somewhere else.  An
+    // inserted sound opens the same dialog filled with what is there — it has
+    // no text range to set a pronunciation for, but it does have something to
+    // change, and the dialog is also where it gets removed.
+    // Double-click goes straight to the dialog: the common annotation should
+    // not need the block clicked and then a button somewhere else.  An
+    // inserted sound opens the same dialog filled with what is there — it has
+    // no text range to set a pronunciation for, but it does have something to
+    // change, and the dialog is also where it gets removed.
     connect(strip_, &RunStrip::chipActivated, this, [this](std::size_t begin, std::size_t end) {
-        maxlabel::Segment * segment = currentSegment();
-        if (segment == nullptr) return;
         if (begin == end) {
-            pushHistory(false);
-            maxlabel::remove_override_at(*segment, begin);
-            commitEdit();
-            showStatus(tr("Inserted sound removed."), "ready");
+            editInsertion(begin);
             return;
         }
         selectChip(begin, end);
@@ -612,7 +613,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     });
     strip_->setToolTip(tr("Click a block to select it, drag across blocks to select a "
                           "run, double-click to set its pronunciation.  Double-click "
-                          "a +tag to remove that inserted sound."));
+                          "a +tag to change or remove that inserted sound."));
     // Scroll rather than grow: a long line must not push the text box, which is
     // the thing being edited, off the window.
     stripScroll_ = new QScrollArea(column);
@@ -1295,6 +1296,53 @@ void MainWindow::insertPhonemes() {
     pushHistory(false);
     maxlabel::insert_phoneme(*segment, at, phonemes);
     commitEdit();
+}
+
+void MainWindow::editInsertion(std::size_t position) {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+
+    const maxlabel::Override * found = nullptr;
+    for (const maxlabel::Override & override_ : segment->overrides) {
+        if (override_.inserts() && override_.begin == position) {
+            found = &override_;
+            break;
+        }
+    }
+    if (found == nullptr) return;
+
+    QString joined;
+    for (const std::string & phoneme : found->phonemes) {
+        if (!joined.isEmpty()) joined += QLatin1Char(' ');
+        joined += QString::fromStdString(phoneme);
+    }
+
+    // Insertion mode, so the placeholder is about a sound rather than a
+    // reading; setExisting then fills the field and adds Remove.
+    PronunciationDialog dialog(QString(),
+                               QString::fromStdString(maxlabel::language_at(*segment, position)),
+                               true, &g2p_, &vocabulary_, this);
+    dialog.setExisting(QString(), joined);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    if (dialog.removalRequested()) {
+        pushHistory(false);
+        maxlabel::remove_override_at(*segment, position);
+        commitEdit();
+        showStatus(tr("Inserted sound removed."), "ready");
+        return;
+    }
+    const std::vector<std::string> phonemes = dialog.phonemes();
+    if (phonemes.empty()) {
+        // Nothing to record and nothing to undo: say so rather than pushing a
+        // history step for a change that was not made.
+        showStatus(tr("Enter at least one phoneme, or use Remove."), "busy");
+        return;
+    }
+    pushHistory(false);
+    maxlabel::insert_phoneme(*segment, position, phonemes);
+    commitEdit();
+    showStatus(tr("Inserted sound changed."), "ready");
 }
 
 void MainWindow::clearOverrides() {

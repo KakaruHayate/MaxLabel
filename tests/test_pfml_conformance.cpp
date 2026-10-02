@@ -15,6 +15,7 @@
 // Every input is also run through validate_pfml, which is the export gate.
 
 #include "maxlabel/annotate.h"
+#include "maxlabel/import_pfml.h"
 #include "maxlabel/core.h"
 
 #include <cctype>
@@ -205,6 +206,64 @@ int main() {
               "markup-looking text: the '<' is escaped, so it cannot open a comment");
         check(pfml.find("&lt;![CDATA[") != std::string::npos,
               "markup-looking text: and cannot open a CDATA section");
+    }
+
+    // Reading back what was written.  Every fragment the tool emits has to be
+    // reconstructible, or editing a file this tool wrote would quietly change
+    // it — and the check is a round trip rather than a field-by-field
+    // comparison: the second export has to equal the first, however the
+    // reading happens to be spelled.
+    {
+        const std::string text = "衬衫的价格是9.15便士";
+        const std::vector<LangSpan> spans = maxlabel::detect_languages(text, "zh");
+        Override pinned;
+        pinned.begin    = 6;
+        pinned.end      = 9;
+        pinned.script   = "de";
+        pinned.phonemes = { "d", "e" };
+        Override inserted;
+        inserted.begin    = 21;
+        inserted.end      = 21;
+        inserted.phonemes = { "n" };
+        const std::string first = annotate(text, spans, {}, { pinned, inserted });
+        verify("round trip: the first export", first);
+
+        const maxlabel::ImportedFragment read = maxlabel::import_pfml(first);
+        check(read.error.empty(), "round trip: the fragment is understood");
+        check(read.text == text, "round trip: the text comes back");
+        check(read.overrides.size() == 2, "round trip: both overrides come back");
+        check(read.words.empty(), "round trip: an override is not also a plain word");
+
+        const std::string second = annotate(read.text, read.spans, read.words,
+                                            read.overrides);
+        check(second == first, "round trip: the second export is identical");
+    }
+
+    // Two <phoneme> tags at one offset are one insertion of two sounds.
+    // Reading them as two insertions stacked on the same point is what put two
+    // identical blocks in the strip for a single decision, and left no way to
+    // tell which of them was which.
+    {
+        const std::string fragment =
+            "<scope language=\"zh\">a<phoneme symbol=\"n\"/><phoneme symbol=\"m\"/>b</scope>";
+        verify("consecutive insertions", fragment);
+        const maxlabel::ImportedFragment read = maxlabel::import_pfml(fragment);
+        check(read.error.empty(), "consecutive insertions: understood");
+        check(read.overrides.size() == 1,
+              "consecutive insertions: they are one insertion, not two");
+        if (read.overrides.size() == 1) {
+            check(read.overrides.front().phonemes.size() == 2,
+                  "consecutive insertions: carrying both sounds");
+            check(read.overrides.front().inserts(), "consecutive insertions: at a point");
+        }
+        const std::string again = annotate(read.text, read.spans, {}, read.overrides);
+        check(again == fragment, "consecutive insertions: the export is unchanged");
+
+        // Separated by text they are two insertions, at two positions.
+        const std::string apart =
+            "<scope language=\"zh\">a<phoneme symbol=\"n\"/>b<phoneme symbol=\"m\"/>c</scope>";
+        const maxlabel::ImportedFragment two = maxlabel::import_pfml(apart);
+        check(two.overrides.size() == 2, "insertions separated by text stay two");
     }
 
     std::cout << (failures == 0 ? "\nALL PASS\n" : "\nFAILURES\n");

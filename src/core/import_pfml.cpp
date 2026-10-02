@@ -188,11 +188,24 @@ public:
                 if (!tag.closing) {
                     const std::string * symbol = tag.attribute("symbol");
                     if (symbol != nullptr && !symbol->empty()) {
-                        Override inserted;
-                        inserted.begin = text.size();
-                        inserted.end   = text.size();
-                        inserted.phonemes = { *symbol };
-                        out_.overrides.push_back(std::move(inserted));
+                        // Several <phoneme> tags at one offset are one
+                        // insertion of several sounds — which is what the
+                        // editor models — and not several insertions stacked
+                        // on the same point, which it does not model and
+                        // cannot draw as anything but a duplicate block.
+                        // Merging is also what makes the round trip stable:
+                        // the writer emits one tag per sound of one override.
+                        if (!out_.overrides.empty() &&
+                            out_.overrides.back().inserts() &&
+                            out_.overrides.back().begin == text.size()) {
+                            out_.overrides.back().phonemes.push_back(*symbol);
+                        } else {
+                            Override inserted;
+                            inserted.begin = text.size();
+                            inserted.end   = text.size();
+                            inserted.phonemes = { *symbol };
+                            out_.overrides.push_back(std::move(inserted));
+                        }
                     }
                 }
             } else {

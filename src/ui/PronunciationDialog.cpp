@@ -111,21 +111,10 @@ PronunciationDialog::PronunciationDialog(const QString & selected_text,
     QDialogButtonBox * buttons =
         new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     layout->addWidget(buttons);
+    buttons_ = buttons;
     maxlabel::ui::localise_buttons(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-
-    // Only for a run that can have a pronunciation: an inserted sound has
-    // nothing to take off, and the button would be a lie.
-    if (!insertion) {
-        QPushButton * remove = buttons->addButton(tr("Remove"),
-                                                  QDialogButtonBox::DestructiveRole);
-        remove->setToolTip(tr("Take the written pronunciation off this run."));
-        connect(remove, &QPushButton::clicked, this, [this]() {
-            removed_ = true;
-            accept();
-        });
-    }
 
     connect(phonemes_, &QLineEdit::textChanged, this, &PronunciationDialog::revalidate);
     revalidate();
@@ -134,6 +123,20 @@ PronunciationDialog::PronunciationDialog(const QString & selected_text,
 void PronunciationDialog::setExisting(const QString & script, const QString & phonemes) {
     if (script_ != nullptr) script_->setText(script);
     if (phonemes_ != nullptr) phonemes_->setText(phonemes);
+    // The button appears exactly when there is something to take back, rather
+    // than each caller deciding for itself whether this dialog is "an
+    // insertion" — a distinction that was wrong as soon as an inserted sound
+    // became editable.
+    if (!has_remove_ && buttons_ != nullptr) {
+        QPushButton * remove = buttons_->addButton(tr("Remove"),
+                                                   QDialogButtonBox::DestructiveRole);
+        remove->setToolTip(tr("Take this off again."));
+        connect(remove, &QPushButton::clicked, this, [this]() {
+            removed_ = true;
+            accept();
+        });
+        has_remove_ = true;
+    }
 }
 
 void PronunciationDialog::useSelectedCandidate() {

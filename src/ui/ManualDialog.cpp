@@ -65,8 +65,9 @@ ManualDialog::ManualDialog(QWidget * parent) : QDialog(parent) {
                                "longer than one character, so this is how a word gets "
                                "marked."));
     html += row(tr("Double-click"), tr("Open the pronunciation dialog for that block. "
-                                       "On a <code>+tag</code> it removes that inserted "
-                                       "sound."));
+                                       "On a <code>+tag</code> it opens that inserted "
+                                       "sound for editing, and <em>Remove</em> in the "
+                                       "dialog takes it away."));
     html += QStringLiteral("</table>");
     html += para(tr("A block carries its state: the reading underneath is what is pinned "
                     "to it, a cyan bar along the bottom means it is a fixed word, and a "
@@ -88,7 +89,9 @@ ManualDialog::ManualDialog(QWidget * parent) : QDialog(parent) {
     html += row(tr("I"), tr("Insert a discrete sound at the cursor — a nasal pad the "
                             "singer added, a breath. It is not part of the text, so it "
                             "gets a <code>+tag</code> above the line instead of a "
-                            "character."));
+                            "character. Inserting again at the same place replaces it "
+                            "rather than stacking a second copy, and double-clicking "
+                            "the tag opens it to change or remove."));
     html += row(tr("R"), tr("Re-split the languages from scratch. Only the automatic "
                             "spans are thrown away; what you decided by hand stays."));
     html += QStringLiteral("</table>");

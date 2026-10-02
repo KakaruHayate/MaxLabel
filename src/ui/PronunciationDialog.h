@@ -20,6 +20,7 @@
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QDialogButtonBox;
 
 class PronunciationDialog : public QDialog {
     Q_OBJECT
@@ -33,7 +34,10 @@ public:
                         QWidget * parent = nullptr);
 
     // Pre-fill with what is already pinned to this run, so the dialog shows
-    // the decision it is about to replace rather than an empty form.
+    // the decision it is about to replace rather than an empty form.  This is
+    // also what puts the Remove button on the dialog: the button exists
+    // exactly when there is something to take back, which is more reliable
+    // than every caller deciding it separately.
     void setExisting(const QString & script, const QString & phonemes);
 
     // True when the author asked for the pronunciation to be taken off rather
@@ -55,6 +59,8 @@ private:
     QLineEdit *   script_     = nullptr;
     QLineEdit *   phonemes_   = nullptr;
     QLabel *      verdict_    = nullptr;
+    QDialogButtonBox * buttons_ = nullptr;
+    bool          has_remove_ = false;
 
     const maxlabel::Vocabulary * vocabulary_ = nullptr;
     std::string language_;
