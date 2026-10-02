@@ -65,6 +65,11 @@ cmake -S . -B build -DMAXLABEL_BUILD_UI=OFF    # 只要 CLI
 | `MaxLabel-macos-arm64.tar.gz` | GUI + CLI，已带 Qt 运行时（`macdeployqt`）；未签名，首次需右键「打开」 |
 | `MaxLabel-linux-x64.tar.gz` | GUI + CLI，**未捆绑 Qt**，需要系统里有 Qt6 运行时（如 `qt6-base-dev`）；CLI 部分不依赖 Qt，可直接用 |
 
+### 开发用的两个开关
+
+- `--screenshot <file>`：把窗口渲染成 PNG 后退出。**界面好不好看，看图片比看描述准**——主题就是这么调出来的。
+- `--spectrum`：以频谱模式启动。
+
 ## 命令行
 
 ```bash
@@ -157,9 +162,11 @@ maxlabel_cli candidates <文本> --g2p <config.json> [--dicts <dir>] [-l zh,en]
 
 ### GUI 现在能做什么
 
-`MaxLabel <文件夹> [--vocab <符号表>] [--g2p <config.json> --dicts <目录>]`
+`MaxLabel <文件夹> [--vocab <符号表>] [--g2p <config.json> --dicts <目录>] [--models <目录>]`
 
-版式参考 Aegisub：**音频在上，图标工具条夹在中间，文本在下**。
+**外观**参考 [R3MOE](https://github.com/KakaruHayate/R3MOE) 的 mouth baker：
+VS Code 暗色中性色 + Material 粉 `#E91E63` 强调色，左侧控制栏、全大写分组标题、扁平按钮。
+调色板在 `src/ui/theme.qss`。版式参考 Aegisub：**音频在上，图标工具条夹在中间，文本在下**。
 
 - **音频区**（没有音频的段落会整个收起）：整段音频常驻，点击定位、拖拽选区。
   `≋` 切换**波形 / 频谱**。频谱是时频图 —— 时间沿 X、频率沿 Y，所以它要的是宽度，
