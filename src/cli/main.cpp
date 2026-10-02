@@ -4,6 +4,7 @@
 // inspect what was found, validate a PFML fragment, and write one back.
 
 #include "maxlabel/core.h"
+#include "maxlabel/language.h"
 
 #include "tifa_ggml/g2p.h"
 
@@ -13,6 +14,10 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -24,10 +29,15 @@ void usage() {
         "  show <dir> <id>            print one segment's PFML\n"
         "  validate <file.pfml>       parse-check a PFML fragment\n"
         "  set <dir> <id> [file]      write <id>.pfml (reads stdin when no file)\n"
+        "  langs <file> [-l <lang>]   split a transcript by language, print the PFML\n"
         "\n"
         "A segment is the set of files sharing a basename: song.wav, song.pfml,\n"
         "song.txt, song.lab, song.json.  Text precedence is .pfml > .txt > .lab,\n"
-        "matching the aligner.\n";
+        "matching the aligner.\n"
+        "\n"
+        "`langs` settles kana/hangul/latin by script.  Han is shared by Chinese,\n"
+        "Japanese and Cantonese, so a Han run takes -l when given and is otherwise\n"
+        "reported as undetermined rather than guessed at.\n";
 }
 
 std::string read_stream(std::istream & in) {
@@ -127,9 +137,48 @@ int command_set(const std::string & directory, const std::string & id,
     return 0;
 }
 
+int command_langs(const std::string & path, const std::string & default_language) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        std::cerr << "cannot read " << path << "\n";
+        return 1;
+    }
+    const std::string text = trim(read_stream(in));
+    const std::vector<maxlabel::LangSpan> spans =
+        maxlabel::detect_languages(text, default_language);
+
+    std::cout << spans.size() << " span(s)\n";
+    for (const maxlabel::LangSpan & span : spans) {
+        std::cout << "  [" << span.begin << "," << span.end << ")  "
+                  << (span.language.empty() ? "(undetermined)" : span.language)
+                  << (span.manual ? "  manual" : "")
+                  << (span.ambiguous ? "  ambiguous" : "")
+                  << "  " << text.substr(span.begin, span.end - span.begin) << "\n";
+    }
+
+    const std::string pfml = maxlabel::spans_to_pfml(text, spans);
+    std::cout << "\npfml:\n" << pfml << "\n";
+    try {
+        maxlabel::validate(pfml);
+    } catch (const std::exception & error) {
+        std::cerr << "\nproduced PFML does not parse: " << error.what() << "\n";
+        return 1;
+    }
+    if (maxlabel::has_undetermined(spans)) {
+        std::cerr << "\nwarning: undetermined span(s) — the aligner needs a language there\n";
+        return 1;
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char ** argv) {
+#ifdef _WIN32
+    // Without this the console mangles every non-ASCII byte, which makes a
+    // tool whose whole job is CJK transcripts unreadable.
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     const std::vector<std::string> args(argv + 1, argv + argc);
     if (args.empty() || args[0] == "-h" || args[0] == "--help") {
         usage();
@@ -143,6 +192,13 @@ int main(int argc, char ** argv) {
         if (command == "set" && args.size() >= 3) {
             return command_set(args[1], args[2],
                                std::vector<std::string>(args.begin() + 3, args.end()));
+        }
+        if (command == "langs" && args.size() >= 2) {
+            std::string default_language;
+            for (std::size_t i = 2; i + 1 < args.size(); ++i) {
+                if (args[i] == "-l") default_language = args[i + 1];
+            }
+            return command_langs(args[1], default_language);
         }
     } catch (const std::exception & error) {
         std::cerr << "error: " << error.what() << "\n";

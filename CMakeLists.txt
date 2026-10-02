@@ -63,6 +63,7 @@ endif()
 # -----------------------------------------------------------------------------
 add_library(maxlabel_core STATIC
     src/core/core.cpp
+    src/core/language.cpp
 )
 add_library(MaxLabel::core ALIAS maxlabel_core)
 
@@ -105,6 +106,11 @@ if(MAXLABEL_BUILD_TESTS)
     target_link_libraries(maxlabel_core_test PRIVATE MaxLabel::core)
     target_compile_options(maxlabel_core_test PRIVATE ${MAXLABEL_WARN_FLAGS})
     add_test(NAME maxlabel_core COMMAND maxlabel_core_test)
+
+    add_executable(maxlabel_language_test tests/test_language.cpp)
+    target_link_libraries(maxlabel_language_test PRIVATE MaxLabel::core)
+    target_compile_options(maxlabel_language_test PRIVATE ${MAXLABEL_WARN_FLAGS})
+    add_test(NAME maxlabel_language COMMAND maxlabel_language_test)
 endif()
 
 # -----------------------------------------------------------------------------
