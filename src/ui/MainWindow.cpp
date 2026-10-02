@@ -566,6 +566,15 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         strip_->setFont(stripFont);
     }
     connect(strip_, &RunStrip::chipClicked, this, &MainWindow::selectChip);
+    // Double-click goes straight to the dialog: the common annotation should
+    // not need the block clicked and then a button somewhere else.
+    connect(strip_, &RunStrip::chipActivated, this, [this](std::size_t begin, std::size_t end) {
+        selectChip(begin, end);
+        pinPronunciation();
+    });
+    strip_->setToolTip(tr("Click a block to select it, drag across blocks to select a "
+                          "run, double-click to set its pronunciation.  The pinned "
+                          "reading shows underneath the character."));
     // Scroll rather than grow: a long line must not push the text box, which is
     // the thing being edited, off the window.
     stripScroll_ = new QScrollArea(column);

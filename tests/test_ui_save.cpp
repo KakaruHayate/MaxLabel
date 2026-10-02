@@ -196,6 +196,38 @@ int main(int argc, char ** argv) {
             const std::string restored = read_file(pfml_path);
             check(restored.find("language=\"ja\"") == std::string::npos,
                   "undo takes the partial change back");
+
+            // A word is longer than one character, so a selection has to be
+            // able to span blocks.  `chat` has no name for that, so it is a
+            // drag — and a drag that only ever re-selects the first block is
+            // exactly the bug that would make `<word>` unusable and look fine.
+            const QPointF from(10, 10);
+            QMouseEvent dragPress(QEvent::MouseButtonPress, from, from, Qt::LeftButton,
+                                  Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(strip, &dragPress);
+
+            QString dragged;
+            const int row = strip->rowHeight();
+            for (int y = 10; y < row * 2 && dragged.size() < 2; y += std::max(1, row / 2)) {
+                for (int x = 12; x < 400 && dragged.size() < 2; x += 2) {
+                    const QPointF at(x, y);
+                    QMouseEvent move(QEvent::MouseMove, at, at, Qt::NoButton,
+                                     Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(strip, &move);
+                    dragged = editor->textCursor().selectedText();
+                }
+            }
+            const QPointF to(400, 10);
+            QMouseEvent release(QEvent::MouseButtonRelease, to, to, Qt::LeftButton,
+                                Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(strip, &release);
+
+            check(dragged == QStringLiteral("今天"),
+                  "dragging across blocks selects the run between them");
+
+            check(QMetaObject::invokeMethod(&window, "markWord"),
+                  "markWord is invocable on a dragged selection");
+            check(QMetaObject::invokeMethod(&window, "undo"), "undo after the drag");
         }
     }
 

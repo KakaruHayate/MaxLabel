@@ -5,10 +5,10 @@
     <name>MainWindow</name>
     <message>
         <location filename="../MainWindow.cpp" line="139"/>
-        <location filename="../MainWindow.cpp" line="712"/>
-        <location filename="../MainWindow.cpp" line="1078"/>
-        <location filename="../MainWindow.cpp" line="1096"/>
-        <location filename="../MainWindow.cpp" line="1106"/>
+        <location filename="../MainWindow.cpp" line="721"/>
+        <location filename="../MainWindow.cpp" line="1087"/>
+        <location filename="../MainWindow.cpp" line="1105"/>
+        <location filename="../MainWindow.cpp" line="1115"/>
         <source>MaxLabel</source>
         <translation>MaxLabel</translation>
     </message>
@@ -195,7 +195,7 @@
     </message>
     <message>
         <location filename="../MainWindow.cpp" line="423"/>
-        <location filename="../MainWindow.cpp" line="896"/>
+        <location filename="../MainWindow.cpp" line="905"/>
         <source>PFML did not parse: %1</source>
         <translation>PFML 解析失败：%1</translation>
     </message>
@@ -235,109 +235,114 @@
         <translation>清除选区</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="607"/>
+        <location filename="../MainWindow.cpp" line="575"/>
+        <source>Click a block to select it, drag across blocks to select a run, double-click to set its pronunciation.  The pinned reading shows underneath the character.</source>
+        <translation>单击方块选中它；按住拖过几块即选中这一段；双击直接指定发音。已指定的读音显示在方块下方。</translation>
+    </message>
+    <message>
+        <location filename="../MainWindow.cpp" line="616"/>
         <source>The lyric line.  Language is detected per script; select a run and press 1-4 to decide it yourself.</source>
         <translation>歌词文本。语言按字形自动判定；选中一段按 1-5 可手动指定。</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="617"/>
+        <location filename="../MainWindow.cpp" line="626"/>
         <source>The PFML that will be written for the aligner.</source>
         <translation>将要写给对齐器的 PFML。</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="619"/>
+        <location filename="../MainWindow.cpp" line="628"/>
         <source>TEXT</source>
         <translation>文本</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="624"/>
+        <location filename="../MainWindow.cpp" line="633"/>
         <source>PFML</source>
         <translation>PFML</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="651"/>
+        <location filename="../MainWindow.cpp" line="660"/>
         <source>Play</source>
         <translation>播放</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="704"/>
+        <location filename="../MainWindow.cpp" line="713"/>
         <source>Open a project folder</source>
         <translation>打开项目文件夹</translation>
     </message>
     <message numerus="yes">
-        <location filename="../MainWindow.cpp" line="722"/>
+        <location filename="../MainWindow.cpp" line="731"/>
         <source>Loaded %n segment(s)</source>
         <translation>
             <numerusform>已载入 %n 个段落</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="732"/>
+        <location filename="../MainWindow.cpp" line="741"/>
         <source>   [invalid]</source>
         <translation>   [不合法]</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="733"/>
+        <location filename="../MainWindow.cpp" line="742"/>
         <source>   [empty]</source>
         <translation>   [空]</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="734"/>
+        <location filename="../MainWindow.cpp" line="743"/>
         <source>   [language?]</source>
         <translation>   [语言未定]</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="735"/>
+        <location filename="../MainWindow.cpp" line="744"/>
         <source>   (no audio)</source>
         <translation>   （无音频）</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="815"/>
+        <location filename="../MainWindow.cpp" line="824"/>
         <source>Select the run to fix as one word.</source>
         <translation>选中要固定为一个词的片段。</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="914"/>
+        <location filename="../MainWindow.cpp" line="923"/>
         <source>Undone</source>
         <translation>已撤销</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="929"/>
+        <location filename="../MainWindow.cpp" line="938"/>
         <source>Redone</source>
         <translation>已重做</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="963"/>
+        <location filename="../MainWindow.cpp" line="972"/>
         <source>Not saved: %1</source>
         <translation>未保存：%1</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1090"/>
+        <location filename="../MainWindow.cpp" line="1099"/>
         <source>No dictionaries in %1</source>
         <translation>%1 里没有词典</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1100"/>
+        <location filename="../MainWindow.cpp" line="1109"/>
         <source>Pronunciation candidates loaded</source>
         <translation>发音候选已加载</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1119"/>
+        <location filename="../MainWindow.cpp" line="1128"/>
         <source>Select the run to pin a pronunciation for.</source>
         <translation>选中要指定发音的片段。</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1280"/>
+        <location filename="../MainWindow.cpp" line="1289"/>
         <source>Select the run to set a language for.</source>
         <translation>选中要指定语言的片段。</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1314"/>
+        <location filename="../MainWindow.cpp" line="1323"/>
         <source>PFML did not parse</source>
         <translation>PFML 解析失败</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1315"/>
+        <location filename="../MainWindow.cpp" line="1324"/>
         <source>The segment was not written, because the aligner would skip this sample:
 
 %1</source>
@@ -346,78 +351,78 @@
 %1</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1335"/>
+        <location filename="../MainWindow.cpp" line="1344"/>
         <source>Saved %1.pfml</source>
         <translation>已保存 %1.pfml</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1349"/>
+        <location filename="../MainWindow.cpp" line="1358"/>
         <source>Open a folder to begin.</source>
         <translation>打开一个文件夹开始。</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1354"/>
+        <location filename="../MainWindow.cpp" line="1363"/>
         <source>%1 segment(s)</source>
         <translation>%1 个段落</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1360"/>
+        <location filename="../MainWindow.cpp" line="1369"/>
         <source>from %1</source>
         <translation>来源：%1</translation>
     </message>
     <message numerus="yes">
-        <location filename="../MainWindow.cpp" line="1367"/>
+        <location filename="../MainWindow.cpp" line="1376"/>
         <source>%n undetermined run(s) — select and press 1-4</source>
         <translation>
             <numerusform>有 %n 段语言未定 — 选中后按 1-5 指定</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1369"/>
+        <location filename="../MainWindow.cpp" line="1378"/>
         <source>languages decided</source>
         <translation>语言已确定</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1372"/>
+        <location filename="../MainWindow.cpp" line="1381"/>
         <source>manual marks: editing the text re-derives them</source>
         <translation>有手动标记：改动文本会重新推导</translation>
     </message>
     <message numerus="yes">
-        <location filename="../MainWindow.cpp" line="1375"/>
+        <location filename="../MainWindow.cpp" line="1384"/>
         <source>%n fixed word(s)</source>
         <translation>
             <numerusform>%n 个固定词</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../MainWindow.cpp" line="1378"/>
+        <location filename="../MainWindow.cpp" line="1387"/>
         <source>%n override(s)</source>
         <translation>
             <numerusform>%n 处覆盖</numerusform>
         </translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1381"/>
+        <location filename="../MainWindow.cpp" line="1390"/>
         <source>no vocabulary: phonemes unchecked</source>
         <translation>未加载音素表：不校验音素</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1382"/>
+        <location filename="../MainWindow.cpp" line="1391"/>
         <source>vocabulary: %1 symbols</source>
         <translation>音素表：%1 个符号</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1383"/>
+        <location filename="../MainWindow.cpp" line="1392"/>
         <source>G2P ready</source>
         <translation>G2P 就绪</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1385"/>
+        <location filename="../MainWindow.cpp" line="1394"/>
         <source>PFML INVALID: %1</source>
         <translation>PFML 不合法：%1</translation>
     </message>
     <message>
-        <location filename="../MainWindow.cpp" line="1387"/>
+        <location filename="../MainWindow.cpp" line="1396"/>
         <source>not editable here: %1</source>
         <translation>此处无法编辑：%1</translation>
     </message>
@@ -498,7 +503,7 @@
 <context>
     <name>RunStrip</name>
     <message>
-        <location filename="../RunStrip.cpp" line="133"/>
+        <location filename="../RunStrip.cpp" line="162"/>
         <source>Nothing to annotate.</source>
         <translation>暂无可标注内容。</translation>
     </message>

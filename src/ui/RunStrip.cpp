@@ -47,17 +47,17 @@ int RunStrip::rowHeight() const { return labelHeight() + readingHeight() + 6; }
 
 void RunStrip::setChips(const std::vector<Chip> & chips) {
     chips_ = chips;
-    current_ = -1;
+    current_first_ = current_last_ = -1;
     relayout();
     update();
 }
 
 void RunStrip::setCurrent(std::size_t begin, std::size_t end) {
-    current_ = -1;
+    current_first_ = current_last_ = -1;
     for (std::size_t i = 0; i < chips_.size(); ++i) {
-        if (chips_[i].begin == begin && chips_[i].end == end) {
-            current_ = static_cast<int>(i);
-            break;
+        if (chips_[i].begin >= begin && chips_[i].end <= end) {
+            if (current_first_ < 0) current_first_ = static_cast<int>(i);
+            current_last_ = static_cast<int>(i);
         }
     }
     update();
@@ -106,22 +106,51 @@ void RunStrip::resizeEvent(QResizeEvent * event) {
     relayout();
 }
 
-const QRect * RunStrip::chip_rect_at(int x, int y) const {
-    for (const QRect & rect : rects_) {
-        if (rect.contains(x, y)) return &rect;
+int RunStrip::chip_index_at(int x, int y) const {
+    for (std::size_t i = 0; i < rects_.size(); ++i) {
+        if (rects_[i].contains(x, y)) return static_cast<int>(i);
     }
-    return nullptr;
+    return -1;
 }
 
 void RunStrip::mousePressEvent(QMouseEvent * event) {
     if (event->button() != Qt::LeftButton) return;
-    const QRect * rect = chip_rect_at(static_cast<int>(event->position().x()),
-                                      static_cast<int>(event->position().y()));
-    if (rect == nullptr) return;
-    const std::ptrdiff_t index = rect - rects_.data();
-    if (index < 0 || index >= static_cast<std::ptrdiff_t>(chips_.size())) return;
-    const Chip & chip = chips_[static_cast<std::size_t>(index)];
-    emit chipClicked(chip.begin, chip.end);
+    const int index = chip_index_at(static_cast<int>(event->position().x()),
+                                    static_cast<int>(event->position().y()));
+    if (index < 0) return;
+    anchor_ = index;
+    current_first_ = current_last_ = index;
+    update();
+    emit chipClicked(chips_[static_cast<std::size_t>(index)].begin,
+                     chips_[static_cast<std::size_t>(index)].end);
+}
+
+void RunStrip::mouseMoveEvent(QMouseEvent * event) {
+    if (anchor_ < 0) return;   // no button down: not a drag
+    const int index = chip_index_at(static_cast<int>(event->position().x()),
+                                    static_cast<int>(event->position().y()));
+    if (index < 0) return;
+    current_first_ = std::min(anchor_, index);
+    current_last_  = std::max(anchor_, index);
+    update();
+    // A word is usually longer than one character, so a selection has to be
+    // able to span blocks: press on the first, drag to the last.  This is a
+    // range the click alone cannot express, and `<word>` needs the range.
+    emit chipClicked(chips_[static_cast<std::size_t>(current_first_)].begin,
+                     chips_[static_cast<std::size_t>(current_last_)].end);
+}
+
+void RunStrip::mouseReleaseEvent(QMouseEvent * event) {
+    if (event->button() == Qt::LeftButton) anchor_ = -1;
+}
+
+void RunStrip::mouseDoubleClickEvent(QMouseEvent * event) {
+    if (event->button() != Qt::LeftButton) return;
+    const int index = chip_index_at(static_cast<int>(event->position().x()),
+                                    static_cast<int>(event->position().y()));
+    if (index < 0) return;
+    emit chipActivated(chips_[static_cast<std::size_t>(index)].begin,
+                       chips_[static_cast<std::size_t>(index)].end);
 }
 
 void RunStrip::paintEvent(QPaintEvent *) {
@@ -137,7 +166,8 @@ void RunStrip::paintEvent(QPaintEvent *) {
     for (std::size_t i = 0; i < chips_.size(); ++i) {
         const Chip & chip = chips_[i];
         const QRect & rect = rects_[i];
-        const bool current = static_cast<int>(i) == current_;
+        const bool current = static_cast<int>(i) >= current_first_ &&
+                             static_cast<int>(i) <= current_last_;
 
         // The block: its language tint, stronger when it is the one selected.
         QColor fill = chip.colour;

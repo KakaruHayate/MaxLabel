@@ -34,7 +34,6 @@ public:
         QString     label;       // the character or word
         QString     reading;     // what is pinned to it, or empty
         QColor      colour;      // the language tint
-        bool        current = false;
         bool        word = false;      // a fixed word boundary covers it
         bool        pinned = false;    // a pronunciation is pinned to it
         bool        unknown = false;   // that pronunciation is not in the vocabulary
@@ -43,14 +42,15 @@ public:
     void setChips(const std::vector<Chip> & chips);
     void setCurrent(std::size_t begin, std::size_t end);
 
-    // The height the blocks need, so a caller can cap it and scroll instead of
-    // letting a long line push the text out of the window.
-    int neededHeight() const { return needed_height_; }
     int rowHeight() const;
 
 signals:
     // The block that was clicked, as byte offsets into the segment text.
     void chipClicked(std::size_t begin, std::size_t end);
+
+    // The same block, asked for with a double click: selecting it and then
+    // going to a button is one step too many for the common case.
+    void chipActivated(std::size_t begin, std::size_t end);
 
     // How tall the blocks now want to be.  Wrapping depends on the width, so
     // this changes on resize too, not only when the chips do — a caller that
@@ -62,10 +62,13 @@ protected:
     void paintEvent(QPaintEvent * event) override;
     void resizeEvent(QResizeEvent * event) override;
     void mousePressEvent(QMouseEvent * event) override;
+    void mouseMoveEvent(QMouseEvent * event) override;
+    void mouseReleaseEvent(QMouseEvent * event) override;
+    void mouseDoubleClickEvent(QMouseEvent * event) override;
 
 private:
     void relayout();
-    const QRect * chip_rect_at(int x, int y) const;
+    int  chip_index_at(int x, int y) const;
 
     // The block is the thing being read and clicked, so it is set larger than
     // the app default; the heights follow the fonts rather than being fixed,
@@ -77,7 +80,11 @@ private:
 
     std::vector<Chip>  chips_;
     std::vector<QRect> rects_;       // one per chip, in the same order
-    int current_ = -1;               // index into chips_
+    // The block, or run of blocks, that is selected.  A run, because a word is
+    // usually longer than one character and `<word>` needs the whole range.
+    int current_first_ = -1;
+    int current_last_  = -1;
+    int anchor_        = -1;         // where a drag started, -1 when not dragging
     int needed_height_ = 0;
     int announced_height_ = -1;
 };
