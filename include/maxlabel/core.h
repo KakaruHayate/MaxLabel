@@ -8,7 +8,7 @@
 // is the one the aligner uses (.pfml, then .txt, then .lab); PFML is the only
 // file this tool writes.
 
-#include "maxlabel/language.h"
+#include "maxlabel/annotate.h"
 
 #include <string>
 #include <vector>
@@ -45,6 +45,11 @@ struct Segment {
     // Word boundaries the author fixed by hand; the aligner otherwise segments
     // by its own dictionary.
     std::vector<WordBoundary> words;
+
+    // Final phonemes the author wrote, where the dictionary is wrong or the
+    // sound is not a word at all.  Covers picking a reading, writing the
+    // phonemes outright, and inserting a discrete sound.
+    std::vector<Override> overrides;
 
     // The editable content.  Empty when the segment has no text yet (audio
     // only, waiting to be typed in).
@@ -98,6 +103,28 @@ void add_word(Segment & segment, std::size_t begin, std::size_t end);
 void remove_word_at(Segment & segment, std::size_t position);
 
 void clear_words(Segment & segment);
+
+// Pin the final phonemes for the run [begin, end) — picking a reading the
+// dictionary got wrong, or writing the phonemes outright.  An existing
+// override over the same range is replaced.
+void set_override(Segment & segment, std::size_t begin, std::size_t end,
+                  const std::string & language, const std::string & script,
+                  const std::vector<std::string> & phonemes);
+
+// Insert a discrete sound at `position` — a nasal pad the singer added, or a
+// breath.  These are not words, so there is no text range to pin them to.
+void insert_phoneme(Segment & segment, std::size_t position,
+                    const std::vector<std::string> & phonemes);
+
+// Drop every override touching `position`, and every override covering the
+// run [begin, end) when `begin < end`.  The same selection toggles off again.
+void remove_override_at(Segment & segment, std::size_t position);
+void remove_overrides_in(Segment & segment, std::size_t begin, std::size_t end);
+
+void clear_overrides(Segment & segment);
+
+// The language a byte offset falls in, or "" when nothing decides it.
+std::string language_at(const Segment & segment, std::size_t position);
 
 // Parse-only PFML validation.  Throws tifa_ggml::InvalidArgument carrying the
 // byte offset when the fragment is malformed.

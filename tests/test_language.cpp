@@ -182,8 +182,8 @@ int main() {
         // has no spelling.  It must be reported, not silently split.
         maxlabel::add_word(segment, 15, 22);
         std::string error;
-        const std::string pfml =
-            maxlabel::annotate_to_pfml(segment.text, segment.spans, segment.words, &error);
+        const std::string pfml = maxlabel::annotate_to_pfml(
+            segment.text, segment.spans, segment.words, {}, &error);
         check(!error.empty(), "word: crossing a language boundary is reported");
         check(pfml.find("<word>") == std::string::npos,
               "word: the unrepresentable word stays plain text");
@@ -191,6 +191,42 @@ int main() {
 
         maxlabel::clear_words(segment);
         check(segment.words.empty(), "word: clear_words empties the list");
+    }
+
+    // Overrides: picking a reading, writing the phonemes outright, and
+    // inserting a sound that is not a word at all.
+    {
+        maxlabel::Segment segment;
+        segment.text = "重来 I love you";
+        segment.default_language = "zh";
+        maxlabel::detect_spans(segment);
+
+        // 重 is a polyphone: pin the reading the dictionary would not pick.
+        maxlabel::set_override(segment, 0, 3, "zh", "chong", { "ch", "ong" });
+        check(segment.pfml.find("<word text=\"重\" language=\"zh\" script=\"chong\" "
+                                "phonemes=\"ch ong\"/>") != std::string::npos,
+              "override: the pinned reading is written out");
+        check(parses(segment.pfml), "override: generated pfml parses");
+
+        // A nasal pad is not a word, so it is inserted rather than pinned.
+        maxlabel::insert_phoneme(segment, 6, { "n" });
+        check(segment.pfml.find("<phoneme symbol=\"n\"/>") != std::string::npos,
+              "override: an inserted sound becomes <phoneme>");
+        check(parses(segment.pfml), "override: pfml with an insert parses");
+
+        maxlabel::remove_overrides_in(segment, 0, 3);
+        check(segment.pfml.find("script=\"chong\"") == std::string::npos,
+              "override: removed from the pfml");
+        check(segment.pfml.find("<phoneme symbol=\"n\"/>") != std::string::npos,
+              "override: removing one leaves the other");
+
+        maxlabel::clear_overrides(segment);
+        check(segment.overrides.empty(), "override: clear_overrides empties the list");
+        check(segment.pfml.find("<phoneme") == std::string::npos, "override: all gone");
+
+        // language_at is what the UI uses to label a picker.
+        check(maxlabel::language_at(segment, 0) == "zh", "language_at: inside the han run");
+        check(maxlabel::language_at(segment, 7) == "en", "language_at: inside the latin run");
     }
 
     std::cout << (failures == 0 ? "\nALL PASS\n" : "\nFAILURES\n");

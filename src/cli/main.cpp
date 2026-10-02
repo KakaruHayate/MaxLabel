@@ -5,6 +5,7 @@
 
 #include "maxlabel/core.h"
 #include "maxlabel/language.h"
+#include "maxlabel/vocabulary.h"
 
 #include "tifa_ggml/g2p.h"
 
@@ -30,6 +31,8 @@ void usage() {
         "  validate <file.pfml>       parse-check a PFML fragment\n"
         "  set <dir> <id> [file]      write <id>.pfml (reads stdin when no file)\n"
         "  langs <file> [-l <lang>]   split a transcript by language, print the PFML\n"
+        "  phoneme <symbol> [-l zh,en] [--vocab <file>]\n"
+        "                             check a phoneme against the model vocabulary\n"
         "\n"
         "A segment is the set of files sharing a basename: song.wav, song.pfml,\n"
         "song.txt, song.lab, song.json.  Text precedence is .pfml > .txt > .lab,\n"
@@ -52,6 +55,23 @@ std::string trim(std::string value) {
     while (b < e && std::isspace(static_cast<unsigned char>(value[b]))) ++b;
     while (e > b && std::isspace(static_cast<unsigned char>(value[e - 1]))) --e;
     return value.substr(b, e - b);
+}
+
+std::vector<std::string> split_commas(const std::string & value) {
+    std::vector<std::string> out;
+    std::string current;
+    for (const char c : value) {
+        if (c == ',') {
+            const std::string trimmed = trim(current);
+            if (!trimmed.empty()) out.push_back(trimmed);
+            current.clear();
+            continue;
+        }
+        current.push_back(c);
+    }
+    const std::string trimmed = trim(current);
+    if (!trimmed.empty()) out.push_back(trimmed);
+    return out;
 }
 
 const maxlabel::Segment * find(const maxlabel::Project & project, const std::string & id) {
@@ -171,6 +191,31 @@ int command_langs(const std::string & path, const std::string & default_language
     return 0;
 }
 
+int command_phoneme(const std::string & symbol, const std::string & vocabulary_path,
+                    const std::vector<std::string> & languages) {
+    maxlabel::Vocabulary vocabulary;
+    if (!vocabulary_path.empty()) {
+        std::string error;
+        if (!vocabulary.load(vocabulary_path, &error)) {
+            std::cerr << error << "\n";
+            return 1;
+        }
+    }
+
+    const maxlabel::PhonemeCheck result = maxlabel::check_phoneme(vocabulary, symbol, languages);
+    if (!result.checkable) {
+        std::cerr << "no vocabulary loaded (--vocab <symbols.txt>) — cannot check '"
+                  << symbol << "'\n";
+        return 2;
+    }
+    if (result.known) {
+        std::cout << symbol << ": resolves\n";
+        return 0;
+    }
+    std::cerr << symbol << ": not in the model vocabulary — the aligner would not resolve it\n";
+    return 1;
+}
+
 }  // namespace
 
 int main(int argc, char ** argv) {
@@ -199,6 +244,15 @@ int main(int argc, char ** argv) {
                 if (args[i] == "-l") default_language = args[i + 1];
             }
             return command_langs(args[1], default_language);
+        }
+        if (command == "phoneme" && args.size() >= 2) {
+            std::string vocabulary_path;
+            std::vector<std::string> languages;
+            for (std::size_t i = 2; i + 1 < args.size(); ++i) {
+                if (args[i] == "--vocab") vocabulary_path = args[i + 1];
+                if (args[i] == "-l") languages = split_commas(args[i + 1]);
+            }
+            return command_phoneme(args[1], vocabulary_path, languages);
         }
     } catch (const std::exception & error) {
         std::cerr << "error: " << error.what() << "\n";

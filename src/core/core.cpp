@@ -289,6 +289,8 @@ void load(Segment & segment) {
     segment.lab.clear();
     segment.reviewed   = false;
     segment.spans.clear();
+    segment.words.clear();
+    segment.overrides.clear();
     segment.pfml.clear();
     segment.pfml_valid = true;
     segment.error.clear();
@@ -387,7 +389,85 @@ void rebuild_pfml(Segment & segment) {
     // A segment with no spans is a .pfml source: its language is already in the
     // fragment, and regenerating would throw that away.
     if (segment.spans.empty()) return;
-    segment.pfml = annotate_to_pfml(segment.text, segment.spans, segment.words, nullptr);
+    segment.pfml = annotate_to_pfml(segment.text, segment.spans, segment.words,
+                                    segment.overrides, nullptr);
+}
+
+std::string language_at(const Segment & segment, std::size_t position) {
+    for (const LangSpan & span : segment.spans) {
+        if (position >= span.begin && position < span.end) return span.language;
+    }
+    return std::string();
+}
+
+void set_override(Segment & segment, std::size_t begin, std::size_t end,
+                  const std::string & language, const std::string & script,
+                  const std::vector<std::string> & phonemes) {
+    if (begin >= end || end > segment.text.size() || phonemes.empty()) return;
+
+    std::vector<Override> kept;
+    kept.reserve(segment.overrides.size() + 1);
+    for (const Override & override_ : segment.overrides) {
+        if (override_.end <= begin || override_.begin >= end) kept.push_back(override_);
+    }
+    Override pinned;
+    pinned.begin    = begin;
+    pinned.end      = end;
+    pinned.language = language;
+    pinned.script   = script;
+    pinned.phonemes = phonemes;
+    kept.push_back(std::move(pinned));
+
+    std::sort(kept.begin(), kept.end(), [](const Override & a, const Override & b) {
+        return a.begin < b.begin;
+    });
+    segment.overrides = std::move(kept);
+    rebuild_pfml(segment);
+}
+
+void insert_phoneme(Segment & segment, std::size_t position,
+                    const std::vector<std::string> & phonemes) {
+    if (position > segment.text.size() || phonemes.empty()) return;
+    Override inserted;
+    inserted.begin    = position;
+    inserted.end      = position;
+    inserted.phonemes = phonemes;
+    segment.overrides.push_back(std::move(inserted));
+    rebuild_pfml(segment);
+}
+
+void remove_override_at(Segment & segment, std::size_t position) {
+    std::vector<Override> kept;
+    kept.reserve(segment.overrides.size());
+    for (const Override & override_ : segment.overrides) {
+        if (override_.begin <= position && position <= override_.end) continue;
+        kept.push_back(override_);
+    }
+    if (kept.size() == segment.overrides.size()) return;
+    segment.overrides = std::move(kept);
+    rebuild_pfml(segment);
+}
+
+void remove_overrides_in(Segment & segment, std::size_t begin, std::size_t end) {
+    if (begin > end) return;
+    std::vector<Override> kept;
+    kept.reserve(segment.overrides.size());
+    for (const Override & override_ : segment.overrides) {
+        const bool overlaps = override_.begin < end && override_.end > begin;
+        const bool at_point = override_.inserts() && override_.begin >= begin &&
+                              override_.begin <= end;
+        if (overlaps || at_point) continue;
+        kept.push_back(override_);
+    }
+    if (kept.size() == segment.overrides.size()) return;
+    segment.overrides = std::move(kept);
+    rebuild_pfml(segment);
+}
+
+void clear_overrides(Segment & segment) {
+    if (segment.overrides.empty()) return;
+    segment.overrides.clear();
+    rebuild_pfml(segment);
 }
 
 void add_word(Segment & segment, std::size_t begin, std::size_t end) {
