@@ -1,0 +1,162 @@
+/* MaxLabel's theme.
+ *
+ * The palette follows R3MOE's mouth baker (a VS Code Dark+ set of neutrals
+ * with a Material accent), so the two tools sit next to each other without
+ * looking like they came from different projects:
+ *
+ *   #252526  chrome           the window and its rails
+ *   #1e1e1e  panel            content: lists, editors, the waveform
+ *   #cccccc  text
+ *   #3a3d41  control         a button at rest, #505357 under the pointer
+ *   #3e3e42  border
+ *   #E91E63  accent           the one colour that means "this one"
+ *   #00BCD4  secondary
+ *
+ * Two conventions are borrowed along with the colours: section titles are
+ * upper-case and in the accent colour, and controls are flat until you touch
+ * them.  Both are what stop a dense tool from reading as a wall of grey boxes.
+ */
+
+QWidget {
+    background: #252526;
+    color: #cccccc;
+    font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    font-size: 9pt;
+}
+
+QMainWindow, QDialog { background: #252526; }
+
+/* --- sections ------------------------------------------------------------ */
+
+QGroupBox {
+    border: 1px solid #3e3e42;
+    border-radius: 4px;
+    margin-top: 10px;
+    padding: 8px 8px 6px 8px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 8px;
+    padding: 0 4px;
+    color: #E91E63;
+    font-weight: bold;
+}
+
+/* --- controls ------------------------------------------------------------ */
+
+QPushButton, QToolButton {
+    background: #3a3d41;
+    color: #cccccc;
+    border: 0;
+    border-radius: 3px;
+    padding: 5px 10px;
+}
+
+QPushButton:hover, QToolButton:hover { background: #505357; color: #ffffff; }
+QPushButton:pressed, QToolButton:pressed { background: #E91E63; color: #ffffff; }
+QPushButton:checked, QToolButton:checked { background: #E91E63; color: #ffffff; }
+QPushButton:disabled, QToolButton:disabled { background: #2d2d30; color: #6b6b6b; }
+
+/* The one action a section exists for. */
+QPushButton[accent="true"] { background: #E91E63; color: #ffffff; font-weight: bold; }
+QPushButton[accent="true"]:hover { background: #d81b60; }
+QPushButton[accent="true"]:pressed { background: #c2185b; }
+
+/* The transport: square, so the glyphs line up in a row. */
+QToolButton[role="transport"] {
+    min-width: 30px;
+    max-width: 30px;
+    min-height: 26px;
+    font-size: 11pt;
+}
+
+QToolButton::menu-indicator { image: none; }
+
+QComboBox, QLineEdit {
+    background: #1e1e1e;
+    color: #ffffff;
+    border: 1px solid #3e3e42;
+    border-radius: 3px;
+    padding: 4px 6px;
+    selection-background-color: #E91E63;
+}
+
+QComboBox:focus, QLineEdit:focus { border: 1px solid #E91E63; }
+QComboBox::drop-down { border: 0; width: 18px; }
+
+/* --- lists --------------------------------------------------------------- */
+
+QListWidget, QTreeWidget {
+    background: #1e1e1e;
+    border: 0;
+    outline: 0;
+    padding: 4px;
+}
+
+QListWidget::item { padding: 5px 8px; border-radius: 3px; }
+QListWidget::item:hover:!selected { background: #2a2d2e; }
+QListWidget::item:selected { background: #E91E63; color: #ffffff; }
+
+/* --- editors ------------------------------------------------------------- */
+
+QPlainTextEdit, QTextEdit {
+    background: #1e1e1e;
+    border: 0;
+    padding: 6px;
+    selection-background-color: #E91E63;
+    selection-color: #ffffff;
+}
+
+QPlainTextEdit[readOnly="true"] { color: #9a9a9a; }
+
+/* --- splitters ----------------------------------------------------------- */
+
+QSplitter::handle { background: #3e3e42; }
+QSplitter::handle:horizontal { width: 1px; }
+QSplitter::handle:vertical { height: 1px; }
+QSplitter::handle:hover { background: #E91E63; }
+
+/* --- scrollbars ---------------------------------------------------------- */
+
+QScrollBar:vertical { background: #1e1e1e; width: 12px; margin: 0; }
+QScrollBar:horizontal { background: #1e1e1e; height: 12px; margin: 0; }
+QScrollBar::handle { background: #424242; border-radius: 5px; }
+QScrollBar::handle:vertical { min-height: 24px; }
+QScrollBar::handle:horizontal { min-width: 24px; }
+QScrollBar::handle:hover { background: #4f4f4f; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+/* --- chrome -------------------------------------------------------------- */
+
+QStatusBar { background: #252526; color: #888888; }
+QStatusBar::item { border: 0; }
+
+QToolTip {
+    background: #1e1e1e;
+    color: #cccccc;
+    border: 1px solid #3e3e42;
+    padding: 4px 6px;
+}
+
+QMenu {
+    background: #1e1e1e;
+    border: 1px solid #3e3e42;
+    padding: 4px;
+}
+
+QMenu::item { padding: 5px 18px 5px 10px; border-radius: 3px; }
+QMenu::item:selected { background: #E91E63; color: #ffffff; }
+
+QScrollArea { border: 0; }
+
+/* Status colours, as in the reference: a state word is worth a colour, and
+ * only one of them is ever showing. */
+QLabel[state="ready"]    { color: #4caf50; }
+QLabel[state="busy"]     { color: #ffb900; }
+QLabel[state="error"]    { color: #f44336; }
+QLabel[state="idle"]     { color: #888888; }
+QLabel[role="hint"]      { color: #888888; }
+QLabel[role="readout"]   { color: #ffffff; font-family: Consolas, "Cascadia Mono", monospace; }

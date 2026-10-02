@@ -10,6 +10,7 @@ add_executable(MaxLabel
     MainWindow.h
     PronunciationDialog.cpp
     PronunciationDialog.h
+    resources.qrc
     ../audio/AudioClip.cpp
     ../audio/AudioClip.h
     ../audio/WaveformView.cpp

@@ -46,6 +46,9 @@ public:
     void loadVocabulary(const QString & path);
     void loadG2P(const QString & config_json, const QString & dictionary_dir);
 
+    // Development aid: start in spectrum mode, so the renderer can be looked at.
+    void setSpectrumMode(bool spectrum);
+
 private slots:
     void openDirectory();
     void onRowChanged(int row);

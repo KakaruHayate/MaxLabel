@@ -9,18 +9,21 @@
 #include <QColor>
 #include <QFileDialog>
 #include <QFontDatabase>
+#include <QGridLayout>
+#include <QGroupBox>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPushButton>
+#include <QScrollArea>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStringList>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextEdit>
-#include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -40,17 +43,26 @@ QString format_time(double seconds) {
         .arg((total / 100) % 10);
 }
 
-// A colour per language.  Chosen to stay apart under the common forms of
-// colour blindness (no red/green pair carrying meaning) and light enough that
-// black text stays readable on top.
+// A tint per language, chosen for a dark background: deep enough that the
+// default light text stays readable on top, and far enough apart to tell at a
+// glance.  (The first version of these was light — they had been picked
+// against a light theme, and on the dark one they glared and hid their own
+// text.)
 QColor colour_for(const std::string & language) {
-    if (language == "zh")  return QColor(0xC9, 0xE0, 0xF5);   // blue
-    if (language == "ja")  return QColor(0xF3, 0xD3, 0xE8);   // pink
-    if (language == "en")  return QColor(0xD6, 0xEC, 0xC9);   // green
-    if (language == "ko")  return QColor(0xF6, 0xE7, 0xB8);   // amber
-    if (language == "yue") return QColor(0xF7, 0xD9, 0xB5);   // orange
+    if (language == "zh")  return QColor(0x24, 0x47, 0x6F);   // blue
+    if (language == "ja")  return QColor(0x5C, 0x26, 0x50);   // magenta
+    if (language == "en")  return QColor(0x24, 0x53, 0x34);   // green
+    if (language == "ko")  return QColor(0x5C, 0x47, 0x26);   // amber
+    if (language == "yue") return QColor(0x5C, 0x36, 0x26);   // orange
     return QColor();
 }
+
+// The annotation underlines.  They sit on top of a language tint, so they have
+// to be light enough to read against one: the palette's secondary and a warm
+// accent, and the error red for the one case that is a real problem.
+const QColor kWordUnderline(0x00, 0xBC, 0xD4);      // secondary
+const QColor kOverrideUnderline(0xFF, 0xB3, 0x00);  // warm: written by hand
+const QColor kErrorUnderline(0xF4, 0x43, 0x36);     // the error colour
 
 // Qt counts in UTF-16 code units; the span model counts UTF-8 bytes.  Cutting
 // the UTF-8 encoding at a span boundary is safe because the detector only ever
@@ -89,55 +101,55 @@ bool has_unknown_phoneme(const maxlabel::Vocabulary & vocabulary,
 
 MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     setWindowTitle(tr("MaxLabel"));
-    resize(1200, 760);
+    resize(1280, 820);
 
-    QToolBar * toolbar = addToolBar(tr("Main"));
-    toolbar->setMovable(false);
+    // --- actions ------------------------------------------------------------
+    // The actions own the behaviour and the keyboard; the rail below is only
+    // how they are drawn.  Keeping the two apart is what lets the buttons be
+    // restyled without touching a shortcut, and what keeps a key working while
+    // the editor has focus.
+    const auto makeAction = [this](const QString & text, const QKeySequence & shortcut,
+                                   const QString & tip) {
+        auto * action = new QAction(text, this);
+        if (!shortcut.isEmpty()) action->setShortcut(shortcut);
+        if (!tip.isEmpty()) action->setToolTip(tip);
+        addAction(action);   // window-wide
+        return action;
+    };
 
-    QAction * openAction = toolbar->addAction(tr("Open Folder…"));
-    openAction->setShortcut(QKeySequence::Open);
+    QAction * openAction = makeAction(tr("Open Folder…"), QKeySequence::Open, QString());
     connect(openAction, &QAction::triggered, this, &MainWindow::openDirectory);
 
-    toolbar->addSeparator();
-
-    prevAction_ = toolbar->addAction(tr("Previous"));
-    prevAction_->setShortcut(QKeySequence(Qt::Key_Z));
+    prevAction_ = makeAction(tr("Previous"), QKeySequence(Qt::Key_Z), QString());
     connect(prevAction_, &QAction::triggered, this, &MainWindow::goPrevious);
 
-    nextAction_ = toolbar->addAction(tr("Next"));
-    nextAction_->setShortcut(QKeySequence(Qt::Key_X));
+    nextAction_ = makeAction(tr("Next"), QKeySequence(Qt::Key_X), QString());
     connect(nextAction_, &QAction::triggered, this, &MainWindow::goNext);
 
-    toolbar->addSeparator();
-
-    saveAction_ = toolbar->addAction(tr("Save"));
-    saveAction_->setShortcut(QKeySequence::Save);
+    saveAction_ = makeAction(tr("Save"), QKeySequence::Save, QString());
     connect(saveAction_, &QAction::triggered, this, &MainWindow::saveCurrent);
 
-    reSplitAction_ = toolbar->addAction(tr("Re-split Languages"));
-    reSplitAction_->setShortcut(QKeySequence(Qt::Key_R));
-    reSplitAction_->setToolTip(tr("Discard the manual language marks and re-run detection"));
+    reSplitAction_ = makeAction(tr("Re-split Languages"), QKeySequence(Qt::Key_R),
+                                tr("Discard the manual language marks and re-run detection"));
     connect(reSplitAction_, &QAction::triggered, this, &MainWindow::reSplit);
 
-    QAction * markWord = toolbar->addAction(tr("Mark Word"));
-    markWord->setShortcut(QKeySequence(Qt::Key_W));
-    markWord->setToolTip(tr("Fix the selected run as one word"));
-    connect(markWord, &QAction::triggered, this, &MainWindow::markWord);
+    QAction * markWordAction = makeAction(tr("Mark Word"), QKeySequence(Qt::Key_W),
+                                          tr("Fix the selected run as one word"));
+    connect(markWordAction, &QAction::triggered, this, &MainWindow::markWord);
 
-    QAction * clearWordsAction = toolbar->addAction(tr("Clear Words"));
+    QAction * clearWordsAction = makeAction(tr("Clear Words"), QKeySequence(), QString());
     connect(clearWordsAction, &QAction::triggered, this, &MainWindow::clearWords);
 
-    toolbar->addSeparator();
-
-    QAction * pinAction = toolbar->addAction(tr("Set Pronunciation…"));
-    pinAction->setShortcut(QKeySequence(Qt::Key_P));
-    pinAction->setToolTip(tr("Pin the final phonemes for the selection"));
+    QAction * pinAction = makeAction(tr("Set Pronunciation…"), QKeySequence(Qt::Key_P),
+                                     tr("Pin the final phonemes for the selection"));
     connect(pinAction, &QAction::triggered, this, &MainWindow::pinPronunciation);
 
-    QAction * insertAction = toolbar->addAction(tr("Insert Phonemes…"));
-    insertAction->setShortcut(QKeySequence(Qt::Key_I));
-    insertAction->setToolTip(tr("Insert a sound at the cursor that is not a word"));
+    QAction * insertAction = makeAction(tr("Insert Phonemes…"), QKeySequence(Qt::Key_I),
+                                        tr("Insert a sound at the cursor that is not a word"));
     connect(insertAction, &QAction::triggered, this, &MainWindow::insertPhonemes);
+
+    QAction * clearOverridesAction = makeAction(tr("Clear Overrides"), QKeySequence(), QString());
+    connect(clearOverridesAction, &QAction::triggered, this, &MainWindow::clearOverrides);
 
     // The non-lexical symbols the aligner always knows.  A nasal pad the singer
     // added is not one of these, but a breath is, and both are one click.
@@ -156,37 +168,127 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
             refreshStatus();
         });
     }
-    QAction * symbolAction = toolbar->addAction(tr("Non-lexical ▾"));
-    symbolAction->setMenu(symbolMenu);
-    symbolAction->setToolTip(tr("Insert AP / SP / sil / … at the cursor"));
 
-    QAction * clearOverridesAction = toolbar->addAction(tr("Clear Overrides"));
-    connect(clearOverridesAction, &QAction::triggered, this, &MainWindow::clearOverrides);
+    // --- the rail -----------------------------------------------------------
+    // Controls on the left, the document on the right, sections in upper case
+    // and in the accent colour.  The reference tool's arrangement, and the
+    // reason a dense editor does not read as a wall of grey buttons.
+    // The rail scrolls: there are five sections in it and a short window would
+    // otherwise cut the last one off with no way to reach it.
+    auto * railScroll = new QScrollArea(this);
+    railScroll->setWidgetResizable(true);
+    railScroll->setFrameShape(QFrame::NoFrame);
+    railScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
-    toolbar->addSeparator();
-    toolbar->addAction(tr("·  set language of selection:"));
+    QWidget * rail = new QWidget;
+    railScroll->setWidget(rail);
+    QVBoxLayout * railLayout = new QVBoxLayout(rail);
+    railLayout->setContentsMargins(8, 8, 8, 8);
+    railLayout->setSpacing(8);
 
-    // Digit keys set the language of the selection — the manual half of the
-    // segmentation, and the reason the ambiguity highlight exists.  Built from
-    // the language table, so supporting another language is one entry there
-    // rather than an edit here.
-    for (const maxlabel::LanguageInfo & language : maxlabel::LanguageTable::builtin().all()) {
-        const QString id = QString::fromStdString(language.id);
-        QAction * action = toolbar->addAction(
-            QStringLiteral("%1 %2").arg(QChar(language.shortcut)).arg(id));
-        if (language.shortcut != '\0') {
-            action->setShortcut(QKeySequence(QString(QChar(language.shortcut))));
+    list_ = new QListWidget(rail);
+    list_->setMinimumHeight(120);
+    connect(list_, &QListWidget::currentRowChanged, this, &MainWindow::onRowChanged);
+
+    // Titled like every other pane: the list is where you are, and an untitled
+    // box at the top of a rail reads as leftover space.
+    auto * listBox = new QGroupBox(tr("SEGMENTS"), rail);
+    auto * listLayout = new QVBoxLayout(listBox);
+    listLayout->setContentsMargins(8, 8, 8, 8);
+    listLayout->addWidget(list_);
+    railLayout->addWidget(listBox, 1);
+
+    const auto addRailButton = [](QGroupBox * box, QBoxLayout * layout, QAction * action,
+                                  bool accent = false) {
+        auto * button = new QPushButton(action->text(), box);
+        if (accent) button->setProperty("accent", true);
+        if (!action->toolTip().isEmpty()) button->setToolTip(action->toolTip());
+        connect(button, &QPushButton::clicked, action, &QAction::trigger);
+        layout->addWidget(button);
+        return button;
+    };
+
+    {
+        auto * box = new QGroupBox(tr("PROJECT"), rail);
+        auto * layout = new QVBoxLayout(box);
+        layout->setSpacing(6);
+        addRailButton(box, layout, openAction);
+        addRailButton(box, layout, saveAction_, /*accent=*/true);
+
+        auto * steps = new QHBoxLayout();
+        steps->setSpacing(6);
+        auto * previous = new QPushButton(tr("‹ Previous"), box);
+        previous->setToolTip(tr("Z"));
+        connect(previous, &QPushButton::clicked, prevAction_, &QAction::trigger);
+        auto * next = new QPushButton(tr("Next ›"), box);
+        next->setToolTip(tr("X"));
+        connect(next, &QPushButton::clicked, nextAction_, &QAction::trigger);
+        steps->addWidget(previous);
+        steps->addWidget(next);
+        layout->addLayout(steps);
+        railLayout->addWidget(box);
+    }
+
+    {
+        auto * box = new QGroupBox(tr("LANGUAGE OF SELECTION"), rail);
+        auto * layout = new QGridLayout(box);
+        layout->setSpacing(6);
+        // Built from the language table, so supporting another language is one
+        // entry there rather than an edit here.
+        int column = 0;
+        int row = 0;
+        for (const maxlabel::LanguageInfo & language : maxlabel::LanguageTable::builtin().all()) {
+            const QString id = QString::fromStdString(language.id);
+            auto * action = makeAction(id, QKeySequence(), QString::fromStdString(language.label));
+            connect(action, &QAction::triggered, this,
+                    [this, id]() { setSelectionLanguage(id); });
+            if (language.shortcut != '\0') {
+                action->setShortcut(QKeySequence(QString(QChar(language.shortcut))));
+            }
+
+            auto * button = new QPushButton(
+                QStringLiteral("%1  %2").arg(QChar(language.shortcut)).arg(id), box);
+            button->setToolTip(QStringLiteral("%1 — %2")
+                                   .arg(QString::fromStdString(language.label))
+                                   .arg(QString(QChar(language.shortcut))));
+            connect(button, &QPushButton::clicked, action, &QAction::trigger);
+            layout->addWidget(button, row, column);
+            if (++column == 2) {
+                column = 0;
+                ++row;
+            }
         }
-        action->setToolTip(QString::fromStdString(language.label));
-        connect(action, &QAction::triggered, this, [this, id]() { setSelectionLanguage(id); });
+        railLayout->addWidget(box);
+    }
+
+    {
+        auto * box = new QGroupBox(tr("WORD BOUNDARIES"), rail);
+        auto * layout = new QVBoxLayout(box);
+        layout->setSpacing(6);
+        addRailButton(box, layout, markWordAction);
+        addRailButton(box, layout, clearWordsAction);
+        addRailButton(box, layout, reSplitAction_);
+        railLayout->addWidget(box);
+    }
+
+    {
+        auto * box = new QGroupBox(tr("PRONUNCIATION"), rail);
+        auto * layout = new QVBoxLayout(box);
+        layout->setSpacing(6);
+        addRailButton(box, layout, pinAction, /*accent=*/true);
+        addRailButton(box, layout, insertAction);
+
+        auto * symbolButton = new QPushButton(tr("Non-lexical ▾"), box);
+        symbolButton->setMenu(symbolMenu);
+        symbolButton->setToolTip(tr("Insert AP / SP / sil / … at the cursor"));
+        layout->addWidget(symbolButton);
+
+        addRailButton(box, layout, clearOverridesAction);
+        railLayout->addWidget(box);
     }
 
     // --- central widget -----------------------------------------------------
     QSplitter * splitter = new QSplitter(this);
-
-    list_ = new QListWidget(splitter);
-    list_->setMinimumWidth(220);
-    connect(list_, &QListWidget::currentRowChanged, this, &MainWindow::onRowChanged);
 
     // Aegisub's arrangement: the audio on top, the controls in a bar under it,
     // then the text.  The audio is full width because a spectrogram reads time
@@ -194,8 +296,16 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     // whole job.
     QSplitter * column = new QSplitter(Qt::Vertical, splitter);
 
-    audio_ = new AudioPanel(column);
+    // Each pane gets a titled frame, as the reference tool does: it says what
+    // the pane is without a legend, and it gives the eye somewhere to rest
+    // between panes that would otherwise run together.
+    auto * audioBox = new QGroupBox(tr("AUDIO"), column);
+    auto * audioLayout = new QVBoxLayout(audioBox);
+    audioLayout->setContentsMargins(8, 8, 8, 8);
+
+    audio_ = new AudioPanel(audioBox);
     audio_->setMinimumHeight(150);
+    audioLayout->addWidget(audio_);
     connect(audio_, &AudioPanel::statusMessage, this, [this](const QString & message) {
         status_->setText(message);
     });
@@ -211,7 +321,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         QToolButton * button = new QToolButton(controls);
         button->setText(glyph);
         button->setToolTip(tip);
-        button->setAutoRaise(true);
+        button->setProperty("role", "transport");   // square, per the theme
         button->setCheckable(checkable);
         // No focus, so the transport never steals the keyboard from the editor.
         button->setFocusPolicy(Qt::NoFocus);
@@ -237,6 +347,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
 
     controlsLayout->addStretch(1);
     QLabel * readout = new QLabel(format_time(0.0), controls);
+    readout->setProperty("role", "readout");
     controlsLayout->addWidget(readout);
     connect(audio_, &AudioPanel::positionChanged, this, [readout](double seconds) {
         readout->setText(format_time(seconds));
@@ -260,20 +371,34 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
 
     preview_ = new QPlainTextEdit(column);
     preview_->setReadOnly(true);
+    preview_->setProperty("readOnly", true);
     preview_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     preview_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     preview_->setPlaceholderText(tr("The PFML that will be written for the aligner."));
 
-    column->addWidget(audio_);
+    auto * textBox = new QGroupBox(tr("TEXT"), column);
+    auto * textLayout = new QVBoxLayout(textBox);
+    textLayout->setContentsMargins(8, 8, 8, 8);
+    textLayout->addWidget(editor_);
+
+    auto * previewBox = new QGroupBox(tr("PFML"), column);
+    auto * previewLayout = new QVBoxLayout(previewBox);
+    previewLayout->setContentsMargins(8, 8, 8, 8);
+    previewLayout->addWidget(preview_);
+
+    column->addWidget(audioBox);
     column->addWidget(controls);
-    column->addWidget(editor_);
-    column->addWidget(preview_);
+    column->addWidget(textBox);
+    column->addWidget(previewBox);
     column->setStretchFactor(0, 3);
     column->setStretchFactor(1, 0);
     column->setStretchFactor(2, 4);
     column->setStretchFactor(3, 1);
+    column->setCollapsible(2, false);
 
-    splitter->addWidget(list_);
+    railScroll->setMinimumWidth(250);
+    railScroll->setMaximumWidth(330);
+    splitter->addWidget(railScroll);
     splitter->addWidget(column);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
@@ -289,6 +414,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     addAction(playAction);
 
     status_ = new QLabel(this);
+    status_->setProperty("state", "idle");
     statusBar()->addWidget(status_);
 
     refreshStatus();
@@ -427,6 +553,8 @@ void MainWindow::clearWords() {
     refreshStatus();
 }
 
+void MainWindow::setSpectrumMode(bool spectrum) { audio_->setSpectrumMode(spectrum); }
+
 void MainWindow::loadVocabulary(const QString & path) {
     std::string error;
     if (!vocabulary_.load(path.toStdString(), &error)) {
@@ -523,7 +651,7 @@ void MainWindow::applyHighlights() {
             // Undetermined: no colour, a wavy underline.  Colour would read as
             // an answer, and there is not one yet.
             format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
-            format.setUnderlineColor(QColor(0xC0, 0x39, 0x2B));
+            format.setUnderlineColor(kErrorUnderline);
         } else {
             format.setBackground(colour_for(span.language));
             if (span.manual) format.setFontWeight(QFont::DemiBold);
@@ -547,7 +675,7 @@ void MainWindow::applyHighlights() {
 
         QTextCharFormat format;
         format.setUnderlineStyle(QTextCharFormat::SingleUnderline);
-        format.setUnderlineColor(QColor(0x2C, 0x3E, 0x50));
+        format.setUnderlineColor(kWordUnderline);
         selection.format = format;
         selections.push_back(selection);
     }
@@ -573,10 +701,10 @@ void MainWindow::applyHighlights() {
         QTextCharFormat format;
         if (unknown) {
             format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
-            format.setUnderlineColor(QColor(0xC0, 0x39, 0x2B));
+            format.setUnderlineColor(kErrorUnderline);
         } else {
             format.setUnderlineStyle(QTextCharFormat::DotLine);
-            format.setUnderlineColor(QColor(0x7F, 0x5C, 0x00));
+            format.setUnderlineColor(kOverrideUnderline);
         }
         selection.format = format;
         selections.push_back(selection);

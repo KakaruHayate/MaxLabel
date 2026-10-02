@@ -14,10 +14,30 @@
 
 namespace {
 
-const QColor kBackground(0x1B, 0x1F, 0x24);
-const QColor kWave(0x6F, 0xC2, 0x7A);
-const QColor kSelection(0x2C, 0x5A, 0x8A, 0x90);
-const QColor kPlayhead(0xE7, 0x4C, 0x3C);
+// The same palette as the rest of the tool (see src/ui/theme.qss): the panel
+// colour for the background, the accent for the data, the secondary for the
+// selection.  A waveform is the primary data of this pane, so it gets the
+// colour that means "this one" everywhere else.
+const QColor kBackground(0x1E, 0x1E, 0x1E);
+const QColor kWave(0xE9, 0x1E, 0x63);
+const QColor kSelection(0x00, 0xBC, 0xD4, 0x60);
+const QColor kPlayhead(0xFF, 0xFF, 0xFF);
+const QColor kMidline(0x33, 0x33, 0x33);
+
+// A dark -> cyan -> pink ramp for the spectrogram, so the quiet end disappears
+// into the panel instead of glowing.
+QColor spectrum_colour(float level) {
+    const auto mix = [](int from, int to, float t) {
+        return static_cast<int>(from + (to - from) * t);
+    };
+    const float t = std::min(1.0f, std::max(0.0f, level));
+    if (t < 0.5f) {
+        const float k = t * 2.0f;
+        return QColor(mix(0x1E, 0x00, k), mix(0x1E, 0xBC, k), mix(0x1E, 0xD4, k));
+    }
+    const float k = (t - 0.5f) * 2.0f;
+    return QColor(mix(0x00, 0xE9, k), mix(0xBC, 0x1E, k), mix(0xD4, 0x63, k));
+}
 
 // In-place radix-2 FFT.  `re` and `im` must be the same power-of-two length.
 void fft(std::vector<float> & re, std::vector<float> & im) {
@@ -160,6 +180,13 @@ const QImage & WaveformView::spectrogram() {
     constexpr int kWindow = 512;
     const int bins = kWindow / 2;
 
+    // A logarithmic frequency axis, bottom to top, over the range that carries
+    // speech and singing.  A linear axis puts every formant and every
+    // fundamental in the bottom few percent of the pane — a 220 Hz tone lands
+    // in row 2 of 256 — which is a spectrogram that shows nothing.
+    const double lowest = 60.0;
+    const double highest = std::min(10000.0, rate / 2.0);
+
     std::vector<float> re(kWindow);
     std::vector<float> im(kWindow);
     std::vector<float> window(kWindow);
@@ -180,17 +207,25 @@ const QImage & WaveformView::spectrogram() {
         }
         fft(re, im);
 
-        for (int bin = 0; bin < bins; ++bin) {
-            const float magnitude = std::sqrt(re[bin] * re[bin] + im[bin] * im[bin]);
-            // Log scale: linear magnitude leaves everything but the loudest
-            // harmonic invisible, which is the opposite of useful here.
-            const float db = 20.0f * std::log10(magnitude + 1e-6f);
+        for (int y = 0; y < h; ++y) {
+            // The bin range this pixel row covers, so no energy is dropped
+            // between rows on a coarse axis.
+            const double high_ratio = std::pow(lowest / highest, static_cast<double>(y) / h);
+            const double low_ratio =
+                std::pow(lowest / highest, static_cast<double>(y + 1) / h);
+            const int first = std::max(1, static_cast<int>(highest * high_ratio * kWindow / rate));
+            const int last = std::max(first,
+                                      static_cast<int>(highest * low_ratio * kWindow / rate));
+
+            float peak = 0.0f;
+            for (int bin = first; bin <= last && bin < bins; ++bin) {
+                peak = std::max(peak, std::sqrt(re[bin] * re[bin] + im[bin] * im[bin]));
+            }
+            // Log magnitude: linear leaves everything but the loudest harmonic
+            // invisible, which is the opposite of useful here.
+            const float db = 20.0f * std::log10(peak + 1e-6f);
             const float level = std::min(1.0f, std::max(0.0f, (db + 60.0f) / 60.0f));
-            const int y = h - 1 - bin * h / bins;
-            spectrum_.setPixelColor(x, y,
-                                    QColor(static_cast<int>(level * 40),
-                                           static_cast<int>(level * 200),
-                                           static_cast<int>(120 + level * 120)));
+            spectrum_.setPixelColor(x, y, spectrum_colour(level));
         }
     }
     return spectrum_;
@@ -221,6 +256,11 @@ void WaveformView::paintEvent(QPaintEvent *) {
     } else {
         const std::vector<float> & samples = clip_->samples();
         const std::size_t total = samples.size();
+        // A faint zero line: without it a quiet passage and a silent one look
+        // the same, and a waveform is read by its distance from the middle.
+        painter.setPen(kMidline);
+        painter.drawLine(0, h / 2, w, h / 2);
+
         painter.setPen(kWave);
         for (int x = 0; x < w; ++x) {
             const std::size_t from = total * static_cast<std::size_t>(x) / static_cast<std::size_t>(w);
