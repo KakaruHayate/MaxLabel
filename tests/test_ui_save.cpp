@@ -231,6 +231,48 @@ int main(int argc, char ** argv) {
         }
     }
 
+    // The PFML pane is editable, which makes it the one pane whose contents
+    // can be wrong on their own.  Two things have to hold: a fragment that
+    // does not parse must change nothing at all, and one that does must reach
+    // the text pane and the file.
+    {
+        auto * preview = window.findChild<QPlainTextEdit *>(QStringLiteral("preview"));
+        check(preview != nullptr, "the window has a PFML pane");
+        if (preview != nullptr) {
+            const std::string before = read_file(pfml_path);
+            const QString text_before = editor->toPlainText();
+
+            preview->setPlainText(QStringLiteral("<scope language=\"zh\">未闭合"));
+            check(QMetaObject::invokeMethod(&window, "applyPfmlEdit"),
+                  "applyPfmlEdit is invocable");
+            check(read_file(pfml_path) == before,
+                  "an unparsable fragment writes nothing");
+            check(editor->toPlainText() == text_before,
+                  "and leaves the text alone");
+            check(preview->property("state").toString() == QStringLiteral("error"),
+                  "and the pane is marked as broken");
+            check(editor->property("stale").toBool(),
+                  "and the panes derived from it are marked stale");
+
+            preview->setPlainText(
+                QStringLiteral("<scope language=\"en\">hello</scope>"));
+            QMetaObject::invokeMethod(&window, "applyPfmlEdit");
+            check(editor->toPlainText() == QStringLiteral("hello"),
+                  "a fragment that parses refills the text pane");
+            check(read_file(pfml_path) == "<scope language=\"en\">hello</scope>",
+                  "and is written out as it was typed");
+            check(!editor->property("stale").toBool(),
+                  "and the stale mark is lifted");
+
+            check(QMetaObject::invokeMethod(&window, "undo"),
+                  "undo is invocable after a PFML edit");
+            check(editor->toPlainText() == text_before,
+                  "undo takes the PFML edit back out of the text pane");
+            check(read_file(pfml_path) == before,
+                  "and off the disk");
+        }
+    }
+
     std::cout << (failures == 0 ? "\nALL PASS\n" : "\nFAILURES\n");
     return failures == 0 ? 0 : 1;
 }

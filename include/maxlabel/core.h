@@ -99,24 +99,46 @@ void rebuild_pfml(Segment & segment);
 
 // Fix the word boundary over [begin, end) — the manual segmentation the
 // aligner's dictionary would otherwise decide.  Out-of-range or empty ranges
-// are ignored.  An existing boundary that overlaps is replaced.
+// are ignored.
+//
+// Marks are overlap-resolved, not accumulated: the later operation wins over
+// the range it names, and an earlier boundary that overlaps keeps only the
+// part sticking out on either side.  So marking 天气 after having marked
+// 今天天气 leaves 今天 and 天气, rather than a fragment or a lost mark.
 void add_word(Segment & segment, std::size_t begin, std::size_t end);
 
-// Drop every word boundary touching `position` (either edge counts), so the
-// same selection toggles a boundary off again.
+// Mark the range as one word, or clear that mark when it is already exactly
+// that word — the same selection toggles, which is how a mistaken boundary
+// gets taken back without hunting for a separate command.
+// Returns true when the range ended up marked.
+bool toggle_word(Segment & segment, std::size_t begin, std::size_t end);
+
+// Whether [begin, end) is already exactly one word boundary.
+bool has_word(const Segment & segment, std::size_t begin, std::size_t end);
+
+// Whether [begin, end) is already exactly one written pronunciation.
+bool has_override(const Segment & segment, std::size_t begin, std::size_t end);
+
+// Whether a discrete sound is already inserted at exactly `position`.
+bool has_insertion_at(const Segment & segment, std::size_t position);
+
+// Drop every word boundary touching `position` (either edge counts).
 void remove_word_at(Segment & segment, std::size_t position);
 
 void clear_words(Segment & segment);
 
 // Pin the final phonemes for the run [begin, end) — picking a reading the
-// dictionary got wrong, or writing the phonemes outright.  An existing
-// override over the same range is replaced.
+// dictionary got wrong, or writing the phonemes outright.  An override that
+// overlaps is dropped whole rather than trimmed: unlike a word boundary it
+// carries a value, and a value written for one range is not the value for a
+// shorter one.
 void set_override(Segment & segment, std::size_t begin, std::size_t end,
                   const std::string & language, const std::string & script,
                   const std::vector<std::string> & phonemes);
 
 // Insert a discrete sound at `position` — a nasal pad the singer added, or a
 // breath.  These are not words, so there is no text range to pin them to.
+// An identical insertion already at that position is replaced, not added to.
 void insert_phoneme(Segment & segment, std::size_t position,
                     const std::vector<std::string> & phonemes);
 

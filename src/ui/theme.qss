@@ -111,6 +111,17 @@ QPlainTextEdit, QTextEdit {
 
 QPlainTextEdit[readOnly="true"] { color: #9a9a9a; }
 
+/* The PFML pane is editable, and the only pane whose contents can be wrong on
+ * its own.  A fragment that does not parse turns it red and dims the panes
+ * that are derived from it — they would otherwise go on showing the last
+ * fragment that did parse, which reads as "nothing is wrong". */
+QPlainTextEdit#preview[state="error"] {
+    border: 1px solid #f44336;
+    background: #2a1c1c;
+}
+QPlainTextEdit#editor[stale="true"] { color: #6b6b6b; }
+QScrollArea#stripScroll[stale="true"] { border: 1px solid #f44336; }
+
 /* --- splitters ----------------------------------------------------------- */
 
 QSplitter::handle { background: #3e3e42; }

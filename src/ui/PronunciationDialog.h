@@ -32,6 +32,15 @@ public:
                         const maxlabel::Vocabulary * vocabulary,
                         QWidget * parent = nullptr);
 
+    // Pre-fill with what is already pinned to this run, so the dialog shows
+    // the decision it is about to replace rather than an empty form.
+    void setExisting(const QString & script, const QString & phonemes);
+
+    // True when the author asked for the pronunciation to be taken off rather
+    // than set.  The dialog cannot do it itself — the model is not its to
+    // touch — so it reports and the caller applies.
+    bool removalRequested() const { return removed_; }
+
     QString script() const;
     std::vector<std::string> phonemes() const;
 
@@ -49,4 +58,5 @@ private:
 
     const maxlabel::Vocabulary * vocabulary_ = nullptr;
     std::string language_;
+    bool removed_ = false;
 };

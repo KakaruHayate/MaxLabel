@@ -31,6 +31,7 @@
 class QLabel;
 class QListWidget;
 class QPlainTextEdit;
+class LyricEditor;
 class QScrollArea;
 class QAction;
 class QTimer;
@@ -66,6 +67,10 @@ private slots:
     void openDirectory();
     void onRowChanged(int row);
     void onTextChanged();
+    void onEditorSelectionChanged();
+    void onPfmlChanged();
+    void applyPfmlEdit();
+    void flushPendingPfmlEdit();
     void saveCurrent();
     void goPrevious();
     void goNext();
@@ -114,6 +119,10 @@ private:
     void commitEdit();
     // A message on the status line for a moment, then the summary returns.
     void showStatus(const QString & message, const char * state, int milliseconds = 4000);
+
+    // One place decides what "the PFML is broken" looks like, because it is
+    // never just about the PFML pane.
+    void setPfmlError(const QString & message);
     void updateHistoryActions();
 
     // Editor -> model, then model -> disk.  Returns false (and leaves the model
@@ -132,6 +141,10 @@ private:
     maxlabel::Project project_;
     int  current_  = -1;
     bool loading_  = false;   // guards the signals fired while repopulating
+    // Set while the strip is mirroring its own selection into the editor, so
+    // the editor's selectionChanged is not mistaken for the author picking a
+    // range by hand.
+    bool mirroringSelection_ = false;
 
     maxlabel::G2PContext g2p_;
     maxlabel::Vocabulary vocabulary_;
@@ -142,6 +155,10 @@ private:
     bool     lastPushWasTyping_ = false;
     qint64   lastPushMs_ = 0;
     QTimer *  typingSaveTimer_ = nullptr;
+    QTimer *  pfmlApplyTimer_ = nullptr;
+    // Set while the model is being written into the PFML pane, so the pane's
+    // textChanged is not read as the author typing in it.
+    bool      updatingPreview_ = false;
     RunStrip * strip_ = nullptr;
     QScrollArea * stripScroll_ = nullptr;
     QWidget * audioBox_ = nullptr;
@@ -162,7 +179,7 @@ private:
     std::vector<LanguageEntry> languageActions_;
 
     QListWidget *   list_       = nullptr;
-    QPlainTextEdit * editor_    = nullptr;
+    LyricEditor * editor_    = nullptr;
     QPlainTextEdit * preview_   = nullptr;
     AudioPanel *    audio_      = nullptr;
     QWidget *       audioControls_ = nullptr;

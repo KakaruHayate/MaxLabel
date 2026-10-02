@@ -2,11 +2,15 @@
 
 #include "AudioPanel.h"
 #include "PronunciationDialog.h"
+#include "DialogButtons.h"
+#include "LyricEditor.h"
+#include "ManualDialog.h"
 #include "RunStrip.h"
 
 #include "Icons.h"
 
 #include "maxlabel/g2p_config.h"
+#include "maxlabel/import_pfml.h"
 #include "maxlabel/languages.h"
 
 #include <QAction>
@@ -27,6 +31,7 @@
 #include <QScrollArea>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QStyle>
 #include <QStringList>
 #include <QTextCharFormat>
 #include <QTextCursor>
@@ -66,12 +71,16 @@ QString format_time(double seconds) {
 // glance.  (The first version of these was light — they had been picked
 // against a light theme, and on the dark one they glared and hid their own
 // text.)
+//
+// Hue alone is not enough for five: amber and orange sat 30 degrees apart and
+// read as the same brown.  So they are spread around the wheel *and* given
+// different lightness, which survives being shrunk to a 10-pixel swatch.
 QColor colour_for(const std::string & language) {
     if (language == "zh")  return QColor(0x24, 0x47, 0x6F);   // blue
     if (language == "ja")  return QColor(0x5C, 0x26, 0x50);   // magenta
     if (language == "en")  return QColor(0x24, 0x53, 0x34);   // green
-    if (language == "ko")  return QColor(0x5C, 0x47, 0x26);   // amber
-    if (language == "yue") return QColor(0x5C, 0x36, 0x26);   // orange
+    if (language == "ko")  return QColor(0x6B, 0x5A, 0x15);   // gold: light, yellow
+    if (language == "yue") return QColor(0x4F, 0x24, 0x18);   // red-brown: dark, ruddy
     return QColor();
 }
 
@@ -258,9 +267,17 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     viewMenu->addAction(nextAction_);
 
     QMenu * helpMenu = menuBar()->addMenu(tr("&Help"));
+    QAction * manualAction = helpMenu->addAction(tr("Manual"));
+    manualAction->setShortcut(QKeySequence::HelpContents);   // F1
+    addAction(manualAction);   // window-wide, so F1 works from any pane
+    connect(manualAction, &QAction::triggered, this, [this]() {
+        ManualDialog dialog(this);
+        dialog.exec();
+    });
+    helpMenu->addSeparator();
     QAction * aboutAction = helpMenu->addAction(tr("About MaxLabel"));
     connect(aboutAction, &QAction::triggered, this, [this]() {
-        QMessageBox::about(this, tr("About MaxLabel"),
+        maxlabel::ui::about(this, tr("About MaxLabel"),
                            tr("<b>MaxLabel</b> — a PFML editor for the aligner.<br><br>"
                               "It turns a folder of audio and transcripts into the PFML "
                               "that TIFA reads."));
@@ -372,6 +389,9 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
             // the PFML, so it stays in the tooltip rather than the label.
             auto * button = new QPushButton(
                 QStringLiteral("%1  %2").arg(QChar(language.shortcut)).arg(name), box);
+            // The swatch is the legend: this is the colour the language takes
+            // in the text and in the strip, worn by the button that picks it.
+            button->setIcon(maxlabel::ui::swatch(colour_for(language.id)));
             button->setToolTip(QStringLiteral("%1 — %2").arg(id).arg(QString(QChar(language.shortcut))));
             connect(button, &QPushButton::clicked, action, &QAction::trigger);
             layout->addWidget(button, row, column);
@@ -423,6 +443,14 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
             status_->setText(tr("PFML did not parse: %1").arg(QString::fromUtf8(error.what())));
         }
     });
+
+    // PFML edits are applied after a pause too, and for the same reason plus
+    // one more: applying on every keystroke would rebuild the text pane under
+    // the cursor while the author is still typing the tag.
+    pfmlApplyTimer_ = new QTimer(this);
+    pfmlApplyTimer_->setSingleShot(true);
+    pfmlApplyTimer_->setInterval(kTypingSaveMs);
+    connect(pfmlApplyTimer_, &QTimer::timeout, this, &MainWindow::applyPfmlEdit);
 
     // A message shown for a moment, then the summary comes back: the status
     // line is the only place that says what just happened, and it is also the
@@ -533,6 +561,10 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     for (const LanguageEntry & entry : languageActions_) {
         QToolButton * button = new QToolButton(controls);
         button->setText(entry.id);
+        // Same legend as the rail, in the compact form: the id and its colour.
+        button->setIcon(maxlabel::ui::swatch(colour_for(entry.id.toStdString()), 11));
+        button->setIconSize(QSize(11, 11));
+        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         button->setToolTip(entry.action->toolTip());
         button->setFocusPolicy(Qt::NoFocus);
         connect(button, &QToolButton::clicked, entry.action, &QAction::trigger);
@@ -562,19 +594,30 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         // A step up from the chrome, but a step below the text itself: the
         // blocks are an index of the line, not a replacement for it.
         QFont stripFont = font();
-        stripFont.setPointSize(11);
+        stripFont.setPointSize(12);
         strip_->setFont(stripFont);
     }
     connect(strip_, &RunStrip::chipClicked, this, &MainWindow::selectChip);
     // Double-click goes straight to the dialog: the common annotation should
-    // not need the block clicked and then a button somewhere else.
+    // not need the block clicked and then a button somewhere else.  On an
+    // inserted sound the same gesture takes it back out — it has no range to
+    // open a dialog for.
     connect(strip_, &RunStrip::chipActivated, this, [this](std::size_t begin, std::size_t end) {
+        maxlabel::Segment * segment = currentSegment();
+        if (segment == nullptr) return;
+        if (begin == end) {
+            pushHistory(false);
+            maxlabel::remove_override_at(*segment, begin);
+            commitEdit();
+            showStatus(tr("Inserted sound removed."), "ready");
+            return;
+        }
         selectChip(begin, end);
         pinPronunciation();
     });
     strip_->setToolTip(tr("Click a block to select it, drag across blocks to select a "
-                          "run, double-click to set its pronunciation.  The pinned "
-                          "reading shows underneath the character."));
+                          "run, double-click to set its pronunciation.  Double-click "
+                          "a +tag to remove that inserted sound."));
     // Scroll rather than grow: a long line must not push the text box, which is
     // the thing being edited, off the window.
     stripScroll_ = new QScrollArea(column);
@@ -594,7 +637,7 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
             std::min(needed, strip_->rowHeight() * 3 + 12));
     });
 
-    editor_ = new QPlainTextEdit(column);
+    editor_ = new LyricEditor(column);
     editor_->setObjectName(QStringLiteral("editor"));
     // One undo, not two.  Qt's own stack would cover typing and silently ignore
     // every annotation, which is worse than no undo at all.
@@ -609,21 +652,32 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     QFont editorFont;
     editorFont.setFamilies({QStringLiteral("Consolas"), QStringLiteral("Microsoft YaHei UI"),
                             QStringLiteral("Sarasa Mono SC"), QStringLiteral("monospace")});
-    editorFont.setPointSize(14);
+    editorFont.setPointSize(18);
     editorFont.setStyleHint(QFont::TypeWriter);
     editor_->setFont(editorFont);
     editor_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     editor_->setPlaceholderText(tr("The lyric line.  Language is detected per script; "
                                    "select a run and press 1-4 to decide it yourself."));
     connect(editor_, &QPlainTextEdit::textChanged, this, &MainWindow::onTextChanged);
+    connect(editor_, &QPlainTextEdit::selectionChanged, this,
+            &MainWindow::onEditorSelectionChanged);
 
     preview_ = new QPlainTextEdit(column);
     preview_->setObjectName(QStringLiteral("preview"));
-    preview_->setReadOnly(true);
-    preview_->setProperty("readOnly", true);
+    // Editable on purpose: the PFML is the artefact that ships, and an author
+    // who can read it should be able to correct it in place.  What is typed
+    // here is parsed back into the model the other panes draw from, so the two
+    // never disagree — and a fragment that will not parse changes nothing and
+    // says so.
     preview_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     preview_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
-    preview_->setPlaceholderText(tr("The PFML that will be written for the aligner."));
+    // One undo for the window, not one per pane: see eventFilter.
+    preview_->setUndoRedoEnabled(false);
+    preview_->installEventFilter(this);
+    preview_->setPlaceholderText(tr("The PFML that will be written for the aligner.  "
+                                    "Editable: what you type here is read back into the "
+                                    "text above."));
+    connect(preview_, &QPlainTextEdit::textChanged, this, &MainWindow::onPfmlChanged);
 
     auto * textBox = new QGroupBox(tr("TEXT"), column);
     auto * textLayout = new QVBoxLayout(textBox);
@@ -679,7 +733,12 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
 }
 
 bool MainWindow::eventFilter(QObject * watched, QEvent * event) {
-    if (event->type() == QEvent::KeyPress && watched == editor_) {
+    // Both text panes hand Ctrl+Z to the window's one history.  A text widget
+    // with its own undo stack would quietly cover typing and ignore every
+    // annotation, and the PFML pane would undo its own keystrokes instead of
+    // the edit they became.
+    if (event->type() == QEvent::KeyPress &&
+        (watched == editor_ || watched == preview_)) {
         auto * key = static_cast<QKeyEvent *>(event);
         const int modifiers = key->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier);
         if (modifiers == Qt::ControlModifier && key->key() == Qt::Key_Z) {
@@ -697,6 +756,16 @@ bool MainWindow::eventFilter(QObject * watched, QEvent * event) {
         }
     }
     return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::flushPendingPfmlEdit() {
+    // An undo pressed while a PFML edit is still in its debounce window would
+    // otherwise step over it: the model has not changed yet, so the undo would
+    // take back the action before the typing instead of the typing.
+    if (pfmlApplyTimer_ != nullptr && pfmlApplyTimer_->isActive()) {
+        pfmlApplyTimer_->stop();
+        applyPfmlEdit();
+    }
 }
 
 const maxlabel::Segment * MainWindow::currentSegment() const {
@@ -718,7 +787,7 @@ void MainWindow::loadDirectory(const QString & directory) {
     try {
         project_ = maxlabel::scan(directory.toStdString());
     } catch (const std::exception & error) {
-        QMessageBox::warning(this, tr("MaxLabel"), QString::fromUtf8(error.what()));
+        maxlabel::ui::warn(this, tr("MaxLabel"), QString::fromUtf8(error.what()));
         return;
     }
     current_ = -1;
@@ -817,19 +886,20 @@ void MainWindow::reSplit() {
 void MainWindow::markWord() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
-    pushHistory(false);
 
-    const QTextCursor cursor = editor_->textCursor();
-    if (!cursor.hasSelection()) {
-        status_->setText(tr("Select the run to fix as one word."));
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    if (!currentRange(begin, end)) {
+        showStatus(tr("Select the run to fix as one word."), "busy");
         return;
     }
-    const QString text = editor_->toPlainText();
-    const std::size_t begin = byte_offset_of(text, cursor.selectionStart());
-    const std::size_t end   = byte_offset_of(text, cursor.selectionEnd());
-
-    maxlabel::add_word(*segment, begin, end);
+    pushHistory(false);
+    // The same selection toggles: pressing it again on a word that is already
+    // exactly this one takes the mark back, which is how a mistaken boundary
+    // gets undone without a separate command to find.
+    const bool marked = maxlabel::toggle_word(*segment, begin, end);
     commitEdit();
+    showStatus(marked ? tr("Marked as one word.") : tr("Word mark removed."), "ready");
 }
 
 void MainWindow::clearWords() {
@@ -911,6 +981,7 @@ void MainWindow::restore(const Snapshot & state) {
 void MainWindow::undo() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
+    flushPendingPfmlEdit();
     History & history = histories_[segment->id];
     if (history.undo.empty()) return;
 
@@ -926,6 +997,7 @@ void MainWindow::undo() {
 void MainWindow::redo() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
+    flushPendingPfmlEdit();
     History & history = histories_[segment->id];
     if (history.redo.empty()) return;
 
@@ -982,6 +1054,40 @@ void MainWindow::refreshStrip() {
     std::vector<RunStrip::Chip> chips;
     if (segment != nullptr) {
         const std::string & text = segment->text;
+
+        // Inserted sounds first: they get their own block, placed before the
+        // character they precede.  A tint on the neighbour says only that
+        // something is there; the block says what.
+        std::vector<RunStrip::Chip> inserts;
+        for (const maxlabel::Override & override_ : segment->overrides) {
+            if (!override_.inserts() || override_.phonemes.empty()) continue;
+            RunStrip::Chip insert;
+            insert.begin = insert.end = override_.begin;
+            insert.insert = true;
+            insert.colour = QColor();   // the block paints itself, not a tint
+            QString joined;
+            for (const std::string & phoneme : override_.phonemes) {
+                if (!joined.isEmpty()) joined += QLatin1Char(' ');
+                joined += QString::fromStdString(phoneme);
+            }
+            insert.label   = QStringLiteral("+") + joined;
+            insert.unknown = has_unknown_phoneme(
+                vocabulary_, override_.phonemes,
+                maxlabel::language_at(*segment, override_.begin));
+            inserts.push_back(std::move(insert));
+        }
+        std::sort(inserts.begin(), inserts.end(),
+                  [](const RunStrip::Chip & a, const RunStrip::Chip & b) {
+                      return a.begin < b.begin;
+                  });
+        std::size_t next_insert = 0;
+        const auto flush_inserts = [&](std::size_t up_to) {
+            while (next_insert < inserts.size() && inserts[next_insert].begin <= up_to) {
+                chips.push_back(inserts[next_insert]);
+                ++next_insert;
+            }
+        };
+
         for (const maxlabel::LangSpan & span : segment->spans) {
             if (span.end <= span.begin || span.end > text.size()) continue;
 
@@ -1005,6 +1111,8 @@ void MainWindow::refreshStrip() {
                         ++i;
                     }
                 }
+
+                flush_inserts(at);
 
                 RunStrip::Chip chip;
                 chip.begin  = at;
@@ -1046,6 +1154,7 @@ void MainWindow::refreshStrip() {
                 chips.push_back(std::move(chip));
             }
         }
+        flush_inserts(text.size());
     }
     strip_->setChips(chips);
     // setChips drops the highlight, so put it back: the block the author
@@ -1074,17 +1183,31 @@ void MainWindow::selectChip(std::size_t begin, std::size_t end) {
     strip_->setCurrent(begin, end);
 
     // Mirror it in the editor, so the two views agree on what is selected.
+    // The mirror provokes a selectionChanged of its own, which must not be
+    // read as the author selecting something in the text.
     const QString text = editor_->toPlainText();
     QTextCursor cursor = editor_->textCursor();
     cursor.setPosition(utf16_offset_of(text, begin));
     cursor.setPosition(utf16_offset_of(text, end), QTextCursor::KeepAnchor);
+    mirroringSelection_ = true;
     editor_->setTextCursor(cursor);
+    mirroringSelection_ = false;
+}
+
+void MainWindow::onEditorSelectionChanged() {
+    if (mirroringSelection_ || loading_) return;
+    if (!stripHasCurrent_) return;
+    // A selection made in the text pane is the newer decision, so the strip
+    // stops claiming one.  Without this the block clicked once keeps winning
+    // every later selection, and the text pane becomes unusable.
+    stripHasCurrent_ = false;
+    strip_->clearCurrent();
 }
 
 void MainWindow::loadVocabulary(const QString & path) {
     std::string error;
     if (!vocabulary_.load(path.toStdString(), &error)) {
-        QMessageBox::warning(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
+        maxlabel::ui::warn(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
         return;
     }
     applyHighlights();
@@ -1102,7 +1225,7 @@ void MainWindow::loadG2PDirectory(const QString & model_dir) {
     // The config is text here, not a path: loadG2P is the --g2p <file> variant.
     std::string error;
     if (!g2p_.loadConfig(config, model_dir.toStdString(), &error)) {
-        QMessageBox::warning(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
+        maxlabel::ui::warn(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
         return;
     }
     refreshStatus();
@@ -1112,7 +1235,7 @@ void MainWindow::loadG2PDirectory(const QString & model_dir) {
 void MainWindow::loadG2P(const QString & config_json, const QString & dictionary_dir) {
     std::string error;
     if (!g2p_.load(config_json.toStdString(), dictionary_dir.toStdString(), &error)) {
-        QMessageBox::warning(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
+        maxlabel::ui::warn(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
         return;
     }
     refreshStatus();
@@ -1121,21 +1244,41 @@ void MainWindow::loadG2P(const QString & config_json, const QString & dictionary
 void MainWindow::pinPronunciation() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
-    pushHistory(false);
 
-    const QTextCursor cursor = editor_->textCursor();
-    if (!cursor.hasSelection()) {
-        status_->setText(tr("Select the run to pin a pronunciation for."));
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    if (!currentRange(begin, end)) {
+        showStatus(tr("Select the run to pin a pronunciation for."), "busy");
         return;
     }
-    const QString text = editor_->toPlainText();
-    const std::size_t begin = byte_offset_of(text, cursor.selectionStart());
-    const std::size_t end   = byte_offset_of(text, cursor.selectionEnd());
 
-    PronunciationDialog dialog(cursor.selectedText(),
-                               QString::fromStdString(maxlabel::language_at(*segment, begin)),
-                               false, &g2p_, &vocabulary_, this);
+    PronunciationDialog dialog(
+        QString::fromStdString(segment->text.substr(begin, end - begin)),
+        QString::fromStdString(maxlabel::language_at(*segment, begin)),
+        false, &g2p_, &vocabulary_, this);
+    // Show what is already there: the dialog is opened to change a decision as
+    // often as to make one, and an empty form looks like nothing is pinned.
+    for (const maxlabel::Override & override_ : segment->overrides) {
+        if (override_.inserts()) continue;
+        if (override_.begin != begin || override_.end != end) continue;
+        QString joined;
+        for (const std::string & phoneme : override_.phonemes) {
+            if (!joined.isEmpty()) joined += QLatin1Char(' ');
+            joined += QString::fromStdString(phoneme);
+        }
+        dialog.setExisting(QString::fromStdString(override_.script), joined);
+        break;
+    }
+
     if (dialog.exec() != QDialog::Accepted) return;
+
+    pushHistory(false);
+    if (dialog.removalRequested()) {
+        maxlabel::remove_overrides_in(*segment, begin, end);
+        commitEdit();
+        showStatus(tr("Written pronunciation removed."), "ready");
+        return;
+    }
     const std::vector<std::string> phonemes = dialog.phonemes();
     if (phonemes.empty()) return;
 
@@ -1147,7 +1290,6 @@ void MainWindow::pinPronunciation() {
 void MainWindow::insertPhonemes() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
-    pushHistory(false);
 
     const std::size_t at =
         byte_offset_of(editor_->toPlainText(), editor_->textCursor().position());
@@ -1158,6 +1300,7 @@ void MainWindow::insertPhonemes() {
     const std::vector<std::string> phonemes = dialog.phonemes();
     if (phonemes.empty()) return;
 
+    pushHistory(false);
     maxlabel::insert_phoneme(*segment, at, phonemes);
     commitEdit();
 }
@@ -1228,12 +1371,21 @@ void MainWindow::applyHighlights() {
     // hand".  A phoneme the vocabulary does not know turns it into a red wavy
     // one, because that is the case the aligner would fail on — and finding
     // out here is the whole reason to check.
+    std::vector<LyricEditor::Insertion> insertions;
     for (const maxlabel::Override & override_ : segment->overrides) {
         if (override_.inserts()) {
-            // An insertion has no width, so mark the character it sits in front
-            // of: without that the position is only in the PFML preview, and a
-            // phoneme you cannot see is one you cannot fix.
+            // An insertion has no width, so the underline cannot say anything
+            // about it.  The editor draws it instead, by position, and the
+            // text under it keeps only a faint tint so the eye knows the
+            // tagged sound lands between these two characters.
             const int at = utf16_offset_of(text, override_.begin);
+            QString joined;
+            for (const std::string & phoneme : override_.phonemes) {
+                if (!joined.isEmpty()) joined += QLatin1Char(' ');
+                joined += QString::fromStdString(phoneme);
+            }
+            insertions.push_back(LyricEditor::Insertion{ at, joined });
+
             if (at >= text.size()) continue;
             QTextEdit::ExtraSelection selection;
             selection.cursor = QTextCursor(editor_->document());
@@ -1241,7 +1393,7 @@ void MainWindow::applyHighlights() {
             selection.cursor.setPosition(std::min(at + 1, static_cast<int>(text.size())),
                                          QTextCursor::KeepAnchor);
             QTextCharFormat format;
-            format.setBackground(QColor(0x5C, 0x47, 0x26));
+            format.setBackground(QColor(0x4A, 0x38, 0x1C));
             selection.format = format;
             selections.push_back(selection);
             continue;
@@ -1271,13 +1423,105 @@ void MainWindow::applyHighlights() {
     }
 
     editor_->setExtraSelections(selections);
+    editor_->setInsertions(insertions);
     refreshStrip();
 }
 
 void MainWindow::refreshPreview() {
     const maxlabel::Segment * segment = currentSegment();
+    // Setting the text fires textChanged, which is the same signal the author's
+    // typing arrives on; the guard is what tells the two apart.
+    updatingPreview_ = true;
     preview_->setPlainText(segment == nullptr ? QString()
                                               : QString::fromStdString(segment->pfml));
+    updatingPreview_ = false;
+    setPfmlError(QString());
+}
+
+void MainWindow::setPfmlError(const QString & message) {
+    // An error is a state of the whole window, not just of the lower pane:
+    // while the fragment does not parse there is no text to draw, no spans and
+    // no strip, so the panes that would be showing those say so by going dim
+    // rather than by going on showing the last thing that did parse.
+    const bool broken = !message.isEmpty();
+    const auto repolish = [](QWidget * widget) {
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+        widget->update();
+    };
+    preview_->setProperty("state", broken ? QStringLiteral("error") : QString());
+    editor_->setProperty("stale", broken);
+    stripScroll_->setProperty("stale", broken);
+    repolish(preview_);
+    repolish(editor_);
+    repolish(stripScroll_);
+    if (broken) {
+        preview_->setToolTip(message);
+        showStatus(message, "error");
+    } else {
+        preview_->setToolTip(tr("The PFML that will be written for the aligner."));
+    }
+}
+
+void MainWindow::onPfmlChanged() {
+    if (updatingPreview_ || loading_) return;
+    // Not applied yet: the fragment is usually invalid halfway through a tag,
+    // and reporting an error for every intermediate keystroke would be noise.
+    pfmlApplyTimer_->start();
+}
+
+void MainWindow::applyPfmlEdit() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+
+    const std::string typed = preview_->toPlainText().toStdString();
+    if (typed == segment->pfml) return;   // nothing was actually edited
+
+    // Parsed before anything is touched, in two steps, because the two failure
+    // modes are different and both have to leave the model alone.  A first
+    // version imported first and let save() catch the malformed case — which
+    // meant the text pane had already been refilled from a fragment that was
+    // never going to be written, and the window disagreed with the file.
+    try {
+        maxlabel::validate(typed);
+    } catch (const std::exception & error) {
+        setPfmlError(tr("PFML does not parse: %1 — the text and the strip still "
+                        "show the last fragment that parsed.")
+                         .arg(QString::fromUtf8(error.what())));
+        return;
+    }
+
+    const maxlabel::ImportedFragment imported = maxlabel::import_pfml(typed);
+    if (!imported.error.empty()) {
+        setPfmlError(tr("PFML not understood: %1 — the text and the strip still "
+                        "show the last fragment that parsed.")
+                         .arg(QString::fromUtf8(imported.error.c_str())));
+        return;
+    }
+
+    pushHistory(false);
+    segment->text      = imported.text;
+    segment->spans     = imported.spans;
+    segment->words     = imported.words;
+    segment->overrides = imported.overrides;
+    segment->pfml      = typed;
+
+    // The text came back from the fragment, so the editor has to be refilled
+    // before anything reads the selection out of it.
+    loading_ = true;
+    editor_->setPlainText(QString::fromStdString(segment->text));
+    loading_ = false;
+
+    setPfmlError(QString());
+    try {
+        maxlabel::save(*segment);
+    } catch (const std::exception & error) {
+        setPfmlError(tr("Saved PFML is invalid: %1").arg(QString::fromUtf8(error.what())));
+        return;
+    }    applyHighlights();
+    refreshStatus();
+    refreshList();
+    showStatus(tr("PFML applied."), "ready");
 }
 
 void MainWindow::setSelectionLanguage(const QString & language) {
@@ -1320,7 +1564,7 @@ bool MainWindow::commitCurrent(bool quiet) {
         maxlabel::save(candidate);
     } catch (const std::exception & error) {
         if (!quiet) {
-            QMessageBox::warning(this, tr("PFML did not parse"),
+            maxlabel::ui::warn(this, tr("PFML did not parse"),
                                  tr("The segment was not written, because the aligner "
                                     "would skip this sample:\n\n%1")
                                      .arg(QString::fromUtf8(error.what())));

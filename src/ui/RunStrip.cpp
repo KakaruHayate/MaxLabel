@@ -20,6 +20,9 @@ const QColor kAccent(0xE9, 0x1E, 0x63);
 const QColor kWord(0x00, 0xBC, 0xD4);
 const QColor kPinned(0xFF, 0xB3, 0x00);
 const QColor kWarn(0xF4, 0x43, 0x36);
+// An inserted sound: a shape of its own rather than a language tint, because
+// it is not part of the text and must not be mistaken for a character.
+const QColor kInsert(0xE8, 0xA9, 0x4A);
 
 }  // namespace
 
@@ -60,6 +63,12 @@ void RunStrip::setCurrent(std::size_t begin, std::size_t end) {
             current_last_ = static_cast<int>(i);
         }
     }
+    update();
+}
+
+void RunStrip::clearCurrent() {
+    if (current_first_ < 0 && current_last_ < 0) return;
+    current_first_ = current_last_ = -1;
     update();
 }
 
@@ -118,11 +127,14 @@ void RunStrip::mousePressEvent(QMouseEvent * event) {
     const int index = chip_index_at(static_cast<int>(event->position().x()),
                                     static_cast<int>(event->position().y()));
     if (index < 0) return;
+    const Chip & chip = chips_[static_cast<std::size_t>(index)];
+    // An inserted sound covers no text, so there is no range to select; the
+    // double click is what acts on it.
+    if (chip.insert) return;
     anchor_ = index;
     current_first_ = current_last_ = index;
     update();
-    emit chipClicked(chips_[static_cast<std::size_t>(index)].begin,
-                     chips_[static_cast<std::size_t>(index)].end);
+    emit chipClicked(chip.begin, chip.end);
 }
 
 void RunStrip::mouseMoveEvent(QMouseEvent * event) {
@@ -168,6 +180,20 @@ void RunStrip::paintEvent(QPaintEvent *) {
         const QRect & rect = rects_[i];
         const bool current = static_cast<int>(i) >= current_first_ &&
                              static_cast<int>(i) <= current_last_;
+
+        // An inserted sound is not a character: it gets a small tag in the
+        // warm colour instead of a language block, so it cannot be mistaken
+        // for text the author typed.
+        if (chip.insert) {
+            const QColor edge = chip.unknown ? kWarn : kInsert;
+            painter.setPen(QPen(edge, 1));
+            painter.setBrush(QColor(0x35, 0x28, 0x14));
+            painter.drawRoundedRect(rect.adjusted(0, 0, -1, -1), 3, 3);
+            painter.setPen(edge);
+            painter.setFont(readingFont());
+            painter.drawText(rect, Qt::AlignCenter, chip.label);
+            continue;
+        }
 
         // The block: its language tint, stronger when it is the one selected.
         QColor fill = chip.colour;

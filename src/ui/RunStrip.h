@@ -30,17 +30,19 @@ public:
 
     struct Chip {
         std::size_t begin = 0;   // byte offsets into the segment text
-        std::size_t end   = 0;
-        QString     label;       // the character or word
+        std::size_t end   = 0;   // equal to begin for an inserted sound
+        QString     label;       // the character or word, or "+n"
         QString     reading;     // what is pinned to it, or empty
         QColor      colour;      // the language tint
         bool        word = false;      // a fixed word boundary covers it
         bool        pinned = false;    // a pronunciation is pinned to it
         bool        unknown = false;   // that pronunciation is not in the vocabulary
+        bool        insert = false;    // an inserted sound, not a character
     };
 
     void setChips(const std::vector<Chip> & chips);
     void setCurrent(std::size_t begin, std::size_t end);
+    void clearCurrent();
 
     int rowHeight() const;
 

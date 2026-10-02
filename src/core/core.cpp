@@ -459,6 +459,17 @@ void set_override(Segment & segment, std::size_t begin, std::size_t end,
 void insert_phoneme(Segment & segment, std::size_t position,
                     const std::vector<std::string> & phonemes) {
     if (position > segment.text.size() || phonemes.empty()) return;
+    // One sound per position: inserting again replaces what was there, so a
+    // repeated command does not stack two copies of the same pad, and the
+    // position stays something a later click can undo.
+    std::vector<Override> kept;
+    kept.reserve(segment.overrides.size() + 1);
+    for (const Override & override_ : segment.overrides) {
+        if (override_.inserts() && override_.begin == position) continue;
+        kept.push_back(override_);
+    }
+    segment.overrides = std::move(kept);
+
     Override inserted;
     inserted.begin    = position;
     inserted.end      = position;
@@ -505,9 +516,18 @@ void add_word(Segment & segment, std::size_t begin, std::size_t end) {
     if (begin >= end || end > segment.text.size()) return;
 
     std::vector<WordBoundary> kept;
-    kept.reserve(segment.words.size() + 1);
+    kept.reserve(segment.words.size() + 2);
     for (const WordBoundary & word : segment.words) {
-        if (word.end <= begin || word.begin >= end) kept.push_back(word);
+        if (word.end <= begin || word.begin >= end) {
+            kept.push_back(word);   // no overlap: untouched
+            continue;
+        }
+        // Overlaps: this mark wins over the range it names, and the old one
+        // keeps whatever sticks out on either side.  Dropping the old one
+        // whole would take 今天 with it when the author decides the word is
+        // 天气 — a mark they made deliberately, lost to a later one.
+        if (word.begin < begin) kept.push_back(WordBoundary{ word.begin, begin });
+        if (word.end > end)     kept.push_back(WordBoundary{ end, word.end });
     }
     kept.push_back(WordBoundary{ begin, end });
     std::sort(kept.begin(), kept.end(),
@@ -516,11 +536,49 @@ void add_word(Segment & segment, std::size_t begin, std::size_t end) {
     rebuild_pfml(segment);
 }
 
+bool has_word(const Segment & segment, std::size_t begin, std::size_t end) {
+    if (begin >= end) return false;
+    for (const WordBoundary & word : segment.words) {
+        if (word.begin == begin && word.end == end) return true;
+    }
+    return false;
+}
+
+bool toggle_word(Segment & segment, std::size_t begin, std::size_t end) {
+    if (begin >= end || end > segment.text.size()) return false;
+    if (has_word(segment, begin, end)) {
+        remove_word_at(segment, begin);
+        return false;
+    }
+    add_word(segment, begin, end);
+    return true;
+}
+
+bool has_override(const Segment & segment, std::size_t begin, std::size_t end) {
+    if (begin >= end) return false;
+    for (const Override & override_ : segment.overrides) {
+        if (!override_.inserts() && override_.begin == begin && override_.end == end) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool has_insertion_at(const Segment & segment, std::size_t position) {
+    for (const Override & override_ : segment.overrides) {
+        if (override_.inserts() && override_.begin == position) return true;
+    }
+    return false;
+}
+
 void remove_word_at(Segment & segment, std::size_t position) {
     std::vector<WordBoundary> kept;
     kept.reserve(segment.words.size());
     for (const WordBoundary & word : segment.words) {
-        if (word.begin <= position && position <= word.end) continue;
+        // Half-open, so a position sitting on the seam between two words
+        // removes one of them rather than both.
+        if (word.begin <= position && position < word.end) continue;
+        if (position == segment.text.size() && word.end == position) continue;
         kept.push_back(word);
     }
     if (kept.size() == segment.words.size()) return;

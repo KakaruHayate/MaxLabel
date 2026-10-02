@@ -7,6 +7,7 @@
 // phoneme the model cannot resolve slips in".
 
 #include "MainWindow.h"
+#include "ManualDialog.h"
 
 #include "Resources.h"
 
@@ -46,11 +47,19 @@ int main(int argc, char ** argv) {
     }
     // Qt's own strings — the file dialog, the standard buttons — come from its
     // own catalogue, which has to be installed too or the app is half
-    // translated.
-    auto * qtTranslator = new QTranslator(&application);
-    if (qtTranslator->load(locale, QStringLiteral("qtbase"), QStringLiteral("_"),
-                           QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
-        application.installTranslator(qtTranslator);
+    // translated and every dialog ends in an English "Cancel".
+    //
+    // Both names are tried: the Qt installer ships `qt_<lang>.qm` and the
+    // distributions ship `qtbase_<lang>.qm`, and a load that quietly returns
+    // false leaves the app half translated with nothing to show for it.
+    const QString qtTranslations = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+    for (const QString & name : { QStringLiteral("qtbase"), QStringLiteral("qt") }) {
+        auto * qtTranslator = new QTranslator(&application);
+        if (qtTranslator->load(locale, name, QStringLiteral("_"), qtTranslations)) {
+            application.installTranslator(qtTranslator);
+            break;
+        }
+        delete qtTranslator;
     }
 
     // Fusion is the base style the theme is written against: the native
@@ -73,6 +82,7 @@ int main(int argc, char ** argv) {
     QString g2pDir;
     QString dictionaries;
     QString screenshot;
+    QString screenshotDialog;
     bool spectrum = false;
     int screenshotRow = -1;
     std::size_t selectBegin = 0;
@@ -93,6 +103,8 @@ int main(int argc, char ** argv) {
             maxlabel::set_model_directory(arguments.at(++i).toStdString());
         } else if (argument == QLatin1String("--screenshot") && has_value) {
             screenshot = arguments.at(++i);
+        } else if (argument == QLatin1String("--screenshot-dialog") && has_value) {
+            screenshotDialog = arguments.at(++i);
         } else if (argument == QLatin1String("--spectrum")) {
             spectrum = true;
         } else if (argument == QLatin1String("--row") && has_value) {
@@ -130,10 +142,22 @@ int main(int argc, char ** argv) {
         // Render the window to a file and exit.  Layout is easier to judge
         // from a picture than from a description, and this is how the theme
         // gets looked at while it is being written.
-        QTimer::singleShot(700, &application, [&window, screenshot]() {
-            window.grab().save(screenshot);
-            QApplication::quit();
-        });
+        if (screenshotDialog == QLatin1String("manual")) {
+            // A dialog is not part of the window, so it has to be grabbed on
+            // its own — and shown non-modally, or exec() would never return.
+            auto * manual = new ManualDialog(&window);
+            manual->setAttribute(Qt::WA_DeleteOnClose);
+            manual->show();
+            QTimer::singleShot(700, &application, [manual, screenshot]() {
+                manual->grab().save(screenshot);
+                QApplication::quit();
+            });
+        } else {
+            QTimer::singleShot(700, &application, [&window, screenshot]() {
+                window.grab().save(screenshot);
+                QApplication::quit();
+            });
+        }
     }
     return QApplication::exec();
 }

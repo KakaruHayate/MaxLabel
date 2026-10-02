@@ -16,6 +16,12 @@ add_library(maxlabel_ui STATIC
     Resources.h
     PronunciationDialog.cpp
     PronunciationDialog.h
+    DialogButtons.cpp
+    DialogButtons.h
+    LyricEditor.cpp
+    LyricEditor.h
+    ManualDialog.cpp
+    ManualDialog.h
     RunStrip.cpp
     RunStrip.h
     resources.qrc

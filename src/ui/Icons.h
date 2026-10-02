@@ -22,4 +22,9 @@ QIcon icon(const QString & name, const QColor & colour = QColor(0xCC, 0xCC, 0xCC
 // accent behind it, where the resting grey reads as disabled.
 QIcon icon(const QString & name, const QColor & colour, const QColor & checked, int size);
 
+// A legend swatch: a language tint as a small rounded square.  A colour the
+// reader has to infer from the text is one they cannot look up, and five tints
+// cannot be learned from having seen them once.
+QIcon swatch(const QColor & colour, int size = 13);
+
 }  // namespace maxlabel::ui

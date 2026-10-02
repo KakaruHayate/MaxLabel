@@ -173,6 +173,76 @@ int main() {
         fs::remove_all(dir);
     }
 
+    // Marks are overlap-resolved, and the same selection takes its own mark
+    // back.  Both halves matter: a mark that cannot be taken back is one the
+    // author has to work around, and a later mark that silently deletes an
+    // earlier one loses work they did deliberately.
+    {
+        maxlabel::Segment segment;
+        segment.id = "marks";
+        segment.directory = dir.string();
+        segment.text = "今天天气不错";
+        maxlabel::detect_spans(segment);
+
+        // Byte offsets: one CJK character is three bytes.
+        const std::size_t tianqi = 6;    // 天气 starts here
+        const std::size_t bu     = 9;    // 不   starts here
+
+        check(maxlabel::toggle_word(segment, 0, tianqi),
+              "toggle_word marks when there was no mark");
+        check(maxlabel::has_word(segment, 0, tianqi), "and the mark is there");
+        check(!maxlabel::toggle_word(segment, 0, tianqi), "the same range unmarks");
+        check(!maxlabel::has_word(segment, 0, tianqi), "and the mark is gone");
+
+        // 今天天气 as one word, then 天气 as a word: the later mark wins over
+        // the range it names, and 今天 survives as a boundary of its own.
+        maxlabel::toggle_word(segment, 0, tianqi);
+        maxlabel::toggle_word(segment, 6, 12);
+        check(maxlabel::has_word(segment, 0, 6),
+              "the part an earlier mark kept outside the new range survives");
+        check(maxlabel::has_word(segment, 6, 12), "and the new mark is there");
+        check(!maxlabel::has_word(segment, 0, 12),
+              "while the range it covered is no longer one word");
+
+        // A point on the seam between two words removes one of them, not both:
+        // the one that starts there, since the offset names its beginning.
+        maxlabel::remove_word_at(segment, 6);
+        check(maxlabel::has_word(segment, 0, 6),
+              "remove_word_at leaves the word ending there");
+        check(!maxlabel::has_word(segment, 6, 12),
+              "and takes the one starting there");
+
+        // A pronunciation is a value, so an overlapping one is replaced whole
+        // rather than trimmed into a value nobody wrote for the shorter range.
+        maxlabel::set_override(segment, 0, 12, "", "jintian", { "j", "in" });
+        maxlabel::set_override(segment, 6, 12, "", "tianqi", { "t", "ian" });
+        check(!maxlabel::has_override(segment, 0, 12),
+              "an overlapping pronunciation is replaced");
+        check(maxlabel::has_override(segment, 6, 12),
+              "by the one that was written later");
+
+        // One sound per position: re-inserting does not stack copies.
+        maxlabel::insert_phoneme(segment, bu, { "n" });
+        check(maxlabel::has_insertion_at(segment, bu), "an inserted sound is there");
+        maxlabel::insert_phoneme(segment, bu, { "m" });
+        std::size_t insertions = 0;
+        for (const maxlabel::Override & override_ : segment.overrides) {
+            if (override_.inserts()) ++insertions;
+        }
+        check(insertions == 1, "inserting again at the same position replaces it");
+        maxlabel::remove_override_at(segment, bu);
+        check(!maxlabel::has_insertion_at(segment, bu), "and it can be taken back");
+
+        // Whatever the sequence, the fragment still has to be valid PFML.
+        bool valid = true;
+        try {
+            maxlabel::validate(segment.pfml);
+        } catch (const std::exception &) {
+            valid = false;
+        }
+        check(valid, "the fragment is still valid PFML after all of that");
+    }
+
     std::cout << (failures == 0 ? "\nALL PASS\n" : "\nFAILURES\n");
     return failures == 0 ? 0 : 1;
 }
