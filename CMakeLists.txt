@@ -65,6 +65,7 @@ endif()
 add_library(maxlabel_core STATIC
     src/core/core.cpp
     src/core/language.cpp
+    src/core/langseg.cpp
     src/core/annotate.cpp
     src/core/vocabulary.cpp
     src/core/g2p_context.cpp

@@ -57,11 +57,17 @@ std::string annotate_to_pfml(const std::string & text,
             marks.push_back(Mark{ override_.begin, override_.end, &override_, false });
         }
     }
-    // Text order; an insert at the same position as a range comes first, since
-    // the sound precedes the word it sits in front of.
+    // Text order; ties broken deterministically, because an override and a
+    // plain word boundary can start at the same byte and only one of them is
+    // emitted: an insert goes first (the sound precedes the word), then an
+    // override before a plain word, since it says strictly more.
     std::sort(marks.begin(), marks.end(), [](const Mark & a, const Mark & b) {
         if (a.begin != b.begin) return a.begin < b.begin;
-        return a.insert && !b.insert;
+        if (a.insert != b.insert) return a.insert;
+        const bool a_override = a.override_ != nullptr;
+        const bool b_override = b.override_ != nullptr;
+        if (a_override != b_override) return a_override;
+        return a.end > b.end;   // longer range first
     });
 
     // Everything inside [begin, end), in text order.  `include_end` lets the
