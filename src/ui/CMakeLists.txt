@@ -16,6 +16,8 @@ add_library(maxlabel_ui STATIC
     Resources.h
     PronunciationDialog.cpp
     PronunciationDialog.h
+    RunStrip.cpp
+    RunStrip.h
     resources.qrc
     ../audio/AudioClip.cpp
     ../audio/AudioClip.h

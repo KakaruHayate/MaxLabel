@@ -31,8 +31,10 @@
 class QLabel;
 class QListWidget;
 class QPlainTextEdit;
+class QScrollArea;
 class QAction;
 class QTimer;
+class RunStrip;
 class AudioPanel;
 
 class MainWindow : public QMainWindow {
@@ -54,6 +56,11 @@ public:
 
     // Development aid: start in spectrum mode, so the renderer can be looked at.
     void setSpectrumMode(bool spectrum);
+
+    // Development aids, for the reproducible screenshots in docs/: pick a row
+    // and a block to mark as current, without a person at the mouse.
+    void selectRowAt(int row);
+    void selectRange(std::size_t begin, std::size_t end);
 
 private slots:
     void openDirectory();
@@ -98,6 +105,11 @@ private:
     void restore(const Snapshot & state);
     // `typing` marks a keystroke, so a burst of them collapses into one step.
     void pushHistory(bool typing);
+    void refreshStrip();
+    void selectChip(std::size_t begin, std::size_t end);
+    // The range the next annotation applies to: the selected chip, or the
+    // editor's selection when nothing is.
+    bool currentRange(std::size_t & begin, std::size_t & end) const;
     // Save and refresh: the tail every structural edit ends with.
     void commitEdit();
     // A message on the status line for a moment, then the summary returns.
@@ -130,6 +142,13 @@ private:
     bool     lastPushWasTyping_ = false;
     qint64   lastPushMs_ = 0;
     QTimer *  typingSaveTimer_ = nullptr;
+    RunStrip * strip_ = nullptr;
+    QScrollArea * stripScroll_ = nullptr;
+    QWidget * audioBox_ = nullptr;
+    QWidget * transport_ = nullptr;
+    bool     stripHasCurrent_ = false;
+    std::size_t stripBegin_ = 0;
+    std::size_t stripEnd_ = 0;
     QTimer *  statusTimer_ = nullptr;
     QAction * undoAction_ = nullptr;
     QAction * redoAction_ = nullptr;

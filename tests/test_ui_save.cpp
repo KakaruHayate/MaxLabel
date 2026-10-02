@@ -9,6 +9,7 @@
 #include "Icons.h"
 #include "Resources.h"
 #include "MainWindow.h"
+#include "RunStrip.h"
 
 #include "maxlabel/core.h"
 
@@ -17,6 +18,7 @@
 #include <QFile>
 #include <QListWidget>
 #include <QMetaObject>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QTextCursor>
 #include <QTemporaryDir>
@@ -156,6 +158,45 @@ int main(int argc, char ** argv) {
         check(second.find("changed") != std::string::npos, "a second edit is written");
         check(second.find("今天天气不错") == std::string::npos,
               "and replaces the first, rather than accumulating");
+    }
+
+    // The strip is the interaction the tool is built around: a block per
+    // character, click it, and the rest of the window agrees on what is
+    // selected.  It is drawn rather than laid out by widgets, so nothing about
+    // it is checked by the compiler or by the core tests — a mis-hit block or
+    // a mapping that is off by one character would look fine and annotate the
+    // wrong thing.
+    {
+        editor->setPlainText(QStringLiteral("今天天气不错 I love you"));
+        QMetaObject::invokeMethod(&window, "saveCurrent");
+
+        auto * strip = window.findChild<RunStrip *>();
+        check(strip != nullptr, "the window has the character strip");
+        if (strip != nullptr) {
+            // The first block is always laid out at the top-left corner.
+            const QPointF at(10, 10);
+            QMouseEvent press(QEvent::MouseButtonPress, at, at, Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(strip, &press);
+
+            check(editor->textCursor().selectedText() == QStringLiteral("今"),
+                  "clicking the first block selects exactly the first character");
+
+            // And an annotation made from that click lands on that character:
+            // the whole point of being able to select it without dragging.
+            check(QMetaObject::invokeMethod(&window, "setSelectionLanguage",
+                                            Q_ARG(QString, QStringLiteral("ja"))),
+                  "setSelectionLanguage is invocable from a strip selection");
+            const std::string partial = read_file(pfml_path);
+            std::cout << "      partial: " << partial << "\n";
+            check(partial.find("language=\"ja\">今<") != std::string::npos,
+                  "the clicked character alone became Japanese");
+
+            QMetaObject::invokeMethod(&window, "undo");
+            const std::string restored = read_file(pfml_path);
+            check(restored.find("language=\"ja\"") == std::string::npos,
+                  "undo takes the partial change back");
+        }
     }
 
     std::cout << (failures == 0 ? "\nALL PASS\n" : "\nFAILURES\n");

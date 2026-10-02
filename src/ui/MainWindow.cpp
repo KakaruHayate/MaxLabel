@@ -2,6 +2,7 @@
 
 #include "AudioPanel.h"
 #include "PronunciationDialog.h"
+#include "RunStrip.h"
 
 #include "Icons.h"
 
@@ -349,16 +350,26 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         int row = 0;
         for (const maxlabel::LanguageInfo & language : maxlabel::LanguageTable::builtin().all()) {
             const QString id = QString::fromStdString(language.id);
-            auto * action = makeAction(id, QKeySequence(), QString::fromStdString(language.label));
+            const QString name = language_name(language.id);
+            // The button says the id — it is what goes into the PFML, and five
+            // of them have to fit in a toolbar — while the tip carries the name
+            // and the key, so the same label the rail shows is still findable.
+            auto * action = makeAction(
+                id, QKeySequence(),
+                language.shortcut == '\0'
+                    ? name
+                    : QStringLiteral("%1 — %2").arg(name).arg(QChar(language.shortcut)));
             connect(action, &QAction::triggered, this,
                     [this, id]() { setSelectionLanguage(id); });
             if (language.shortcut != '\0') {
                 action->setShortcut(QKeySequence(QString(QChar(language.shortcut))));
             }
+            // The quick bar under the audio uses the same actions: one
+            // definition, two places to reach it from.
+            languageActions_.push_back({id, action});
 
             // The name is translated, the id is not: the id is what goes into
             // the PFML, so it stays in the tooltip rather than the label.
-            const QString name = language_name(language.id);
             auto * button = new QPushButton(
                 QStringLiteral("%1  %2").arg(QChar(language.shortcut)).arg(name), box);
             button->setToolTip(QStringLiteral("%1 — %2").arg(id).arg(QString(QChar(language.shortcut))));
@@ -451,9 +462,18 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     controlsLayout->setContentsMargins(4, 2, 4, 2);
     controlsLayout->setSpacing(2);
 
+    // The transport lives in its own strip inside the bar, because it is the
+    // only part of the bar that needs audio: an annotation is a text
+    // operation, and it has to stay reachable on a segment with no recording.
+    QWidget * transport = new QWidget(controls);
+    transport_ = transport;
+    QHBoxLayout * transportLayout = new QHBoxLayout(transport);
+    transportLayout->setContentsMargins(0, 0, 0, 0);
+    transportLayout->setSpacing(2);
+
     const auto addButton = [&](const QString & iconName, const QString & tip,
                                const std::function<void()> & action, bool checkable = false) {
-        QToolButton * button = new QToolButton(controls);
+        QToolButton * button = new QToolButton(transport);
         button->setIcon(checkable
                             ? maxlabel::ui::icon(iconName, kIconColour, kIconOnAccent, 18)
                             : maxlabel::ui::icon(iconName, kIconColour, 18));
@@ -464,25 +484,34 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         // No focus, so the transport never steals the keyboard from the editor.
         button->setFocusPolicy(Qt::NoFocus);
         connect(button, &QToolButton::clicked, this, action);
-        controlsLayout->addWidget(button);
+        transportLayout->addWidget(button);
         return button;
     };
 
     addButton(QStringLiteral("play"), tr("Play the selection, or the whole file (Ctrl+Space)"),
               [this]() { audio_->playSelectionOrAll(); });
     addButton(QStringLiteral("stop"), tr("Stop"), [this]() { audio_->stop(); });
-    controlsLayout->addSpacing(10);
+    transportLayout->addSpacing(10);
     addButton(QStringLiteral("back"), tr("Back half a second (Q)"),
               [this]() { audio_->nudge(-0.5); });
     addButton(QStringLiteral("forward"), tr("Forward half a second (W)"),
               [this]() { audio_->nudge(0.5); });
-    controlsLayout->addSpacing(10);
+    transportLayout->addSpacing(10);
     addButton(QStringLiteral("spectrum"), tr("Waveform / spectrum"), [this]() { audio_->toggleMode(); },
               true);
-    controlsLayout->addSpacing(10);
+    transportLayout->addSpacing(10);
     addButton(QStringLiteral("clear"), tr("Clear the selection"),
               [this]() { audio_->view()->clearSelection(); });
 
+    QLabel * readout = new QLabel(format_time(0.0), transport);
+    readout->setProperty("role", "readout");
+    transportLayout->addSpacing(10);
+    transportLayout->addWidget(readout);
+    connect(audio_, &AudioPanel::positionChanged, this, [readout](double seconds) {
+        readout->setText(format_time(seconds));
+    });
+
+    controlsLayout->addWidget(transport);
     controlsLayout->addSpacing(10);
 
     // The annotations people reach for constantly, in the bar between the audio
@@ -511,21 +540,50 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     }
 
     controlsLayout->addStretch(1);
-    QLabel * readout = new QLabel(format_time(0.0), controls);
-    readout->setProperty("role", "readout");
-    controlsLayout->addWidget(readout);
-    connect(audio_, &AudioPanel::positionChanged, this, [readout](double seconds) {
-        readout->setText(format_time(seconds));
-    });
 
     // No audio, no audio area: an empty waveform and a dead transport take up
-    // room and say nothing.
+    // room and say nothing.  The annotation bar stays — it is not about the
+    // recording.
+    audioBox_ = audioBox;
     connect(audio_, &AudioPanel::audioAvailabilityChanged, this, [this](bool available) {
         audio_->setVisible(available);
-        if (audioControls_ != nullptr) audioControls_->setVisible(available);
+        if (transport_ != nullptr) transport_->setVisible(available);
+        if (audioBox_ != nullptr) audioBox_->setVisible(available);
     });
     audio_->setVisible(false);
-    controls->setVisible(false);
+    transport->setVisible(false);
+    audioBox->setVisible(false);
+
+    // The strip: the line as the units that get annotated.  Clicking one
+    // selects it, which is the whole of the interaction — no dragging across
+    // characters that have no boundary to snap to.
+    strip_ = new RunStrip;
+    {
+        // A step up from the chrome, but a step below the text itself: the
+        // blocks are an index of the line, not a replacement for it.
+        QFont stripFont = font();
+        stripFont.setPointSize(11);
+        strip_->setFont(stripFont);
+    }
+    connect(strip_, &RunStrip::chipClicked, this, &MainWindow::selectChip);
+    // Scroll rather than grow: a long line must not push the text box, which is
+    // the thing being edited, off the window.
+    stripScroll_ = new QScrollArea(column);
+    stripScroll_->setObjectName(QStringLiteral("stripScroll"));
+    stripScroll_->setWidget(strip_);
+    stripScroll_->setWidgetResizable(true);
+    stripScroll_->setFrameShape(QFrame::NoFrame);
+    stripScroll_->setMaximumHeight(strip_->rowHeight() * 3 + 20);
+    stripScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // The strip knows how tall its blocks are only once it has a width to wrap
+    // against, so it tells us rather than being asked at the wrong moment.  A
+    // scroll area will otherwise be squeezed to nothing by the layout, which
+    // clipped the blocks; fixing the height keeps one row one row tall, and
+    // turns a long line into an inner scroll instead of a shorter text box.
+    connect(strip_, &RunStrip::heightNeeded, this, [this](int needed) {
+        stripScroll_->setFixedHeight(
+            std::min(needed, strip_->rowHeight() * 3 + 12));
+    });
 
     editor_ = new QPlainTextEdit(column);
     editor_->setObjectName(QStringLiteral("editor"));
@@ -536,8 +594,14 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     // would otherwise swallow Ctrl+Z and the history would only be reachable
     // from the rail.
     editor_->installEventFilter(this);
-    QFont editorFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    editorFont.setPointSize(editorFont.pointSize() + 3);   // the text is the point
+    // The text is the point of the tool, so it is set larger than the chrome
+    // and with a CJK family named: the fixed font alone has no Han glyphs, and
+    // the fallback Qt picked for them came out at a different size.
+    QFont editorFont;
+    editorFont.setFamilies({QStringLiteral("Consolas"), QStringLiteral("Microsoft YaHei UI"),
+                            QStringLiteral("Sarasa Mono SC"), QStringLiteral("monospace")});
+    editorFont.setPointSize(14);
+    editorFont.setStyleHint(QFont::TypeWriter);
     editor_->setFont(editorFont);
     editor_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     editor_->setPlaceholderText(tr("The lyric line.  Language is detected per script; "
@@ -564,12 +628,14 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
 
     column->addWidget(audioBox);
     column->addWidget(controls);
+    column->addWidget(stripScroll_);
     column->addWidget(textBox);
     column->addWidget(previewBox);
     column->setStretchFactor(0, 3);
     column->setStretchFactor(1, 0);
-    column->setStretchFactor(2, 4);
-    column->setStretchFactor(3, 1);
+    column->setStretchFactor(2, 0);
+    column->setStretchFactor(3, 4);
+    column->setStretchFactor(4, 1);
     column->setCollapsible(2, false);
 
     railScroll->setMinimumWidth(250);
@@ -662,6 +728,7 @@ void MainWindow::refreshList() {
     list_->clear();
     for (const maxlabel::Segment & segment : project_.segments) {
         QString label = QString::fromStdString(segment.id);
+        if (!maxlabel::is_saved(segment)) label += QStringLiteral(" *");
         if (!segment.pfml_valid) label += tr("   [invalid]");
         else if (segment.source == maxlabel::TextSource::None) label += tr("   [empty]");
         if (maxlabel::has_undetermined(segment.spans)) label += tr("   [language?]");
@@ -765,6 +832,13 @@ void MainWindow::clearWords() {
 }
 
 void MainWindow::setSpectrumMode(bool spectrum) { audio_->setSpectrumMode(spectrum); }
+
+void MainWindow::selectRowAt(int row) { selectRow(row); }
+
+void MainWindow::selectRange(std::size_t begin, std::size_t end) {
+    editor_->setFocus();
+    selectChip(begin, end);
+}
 
 MainWindow::Snapshot MainWindow::snapshot() const {
     Snapshot state;
@@ -894,6 +968,110 @@ void MainWindow::commitEdit() {
     refreshStatus();
 }
 
+void MainWindow::refreshStrip() {
+    const maxlabel::Segment * segment = currentSegment();
+    std::vector<RunStrip::Chip> chips;
+    if (segment != nullptr) {
+        const std::string & text = segment->text;
+        for (const maxlabel::LangSpan & span : segment->spans) {
+            if (span.end <= span.begin || span.end > text.size()) continue;
+
+            std::size_t i = span.begin;
+            while (i < span.end) {
+                const std::size_t at = i;
+                const unsigned char b = static_cast<unsigned char>(text[i]);
+                std::size_t width = 1;
+                if ((b & 0xE0) == 0xC0) width = 2;
+                else if ((b & 0xF0) == 0xE0) width = 3;
+                else if ((b & 0xF8) == 0xF0) width = 4;
+                i += width;
+                if (i > span.end) i = span.end;
+
+                // Latin runs stay one block: a word is one thing to annotate,
+                // and per-letter blocks would be noise.
+                if (width == 1 &&
+                    std::isalnum(static_cast<unsigned char>(text[at]))) {
+                    while (i < span.end &&
+                           std::isalnum(static_cast<unsigned char>(text[i]))) {
+                        ++i;
+                    }
+                }
+
+                RunStrip::Chip chip;
+                chip.begin  = at;
+                chip.end    = i;
+                chip.label  = QString::fromStdString(text.substr(at, i - at));
+                chip.colour = colour_for(span.language);
+
+                for (const maxlabel::WordBoundary & word : segment->words) {
+                    if (word.begin <= at && word.end >= i) {
+                        chip.word = true;
+                        break;
+                    }
+                }
+
+                // What is pinned to it, if anything: the reading under the
+                // character is the visible result of an annotation.
+                for (const maxlabel::Override & override_ : segment->overrides) {
+                    if (override_.begin > at || override_.end < i) continue;
+                    if (override_.inserts()) continue;
+                    chip.pinned = true;
+                    // The script is what a person reads — "de" — and the
+                    // phoneme list is what the aligner gets.  Show the
+                    // readable one; fall back when there is no script.
+                    if (!override_.script.empty()) {
+                        chip.reading = QString::fromStdString(override_.script);
+                    } else if (!override_.phonemes.empty()) {
+                        QString joined;
+                        for (const std::string & phoneme : override_.phonemes) {
+                            if (!joined.isEmpty()) joined += QLatin1Char(' ');
+                            joined += QString::fromStdString(phoneme);
+                        }
+                        chip.reading = joined;
+                    }
+                    chip.unknown = has_unknown_phoneme(
+                        vocabulary_, override_.phonemes,
+                        maxlabel::language_at(*segment, override_.begin));
+                    break;
+                }
+                chips.push_back(std::move(chip));
+            }
+        }
+    }
+    strip_->setChips(chips);
+    // setChips drops the highlight, so put it back: the block the author
+    // clicked has to stay marked while the model underneath it changes.
+    if (stripHasCurrent_) strip_->setCurrent(stripBegin_, stripEnd_);
+}
+
+bool MainWindow::currentRange(std::size_t & begin, std::size_t & end) const {
+    if (stripHasCurrent_) {
+        begin = stripBegin_;
+        end = stripEnd_;
+        return true;
+    }
+    const QTextCursor cursor = editor_->textCursor();
+    if (!cursor.hasSelection()) return false;
+    const QString text = editor_->toPlainText();
+    begin = byte_offset_of(text, cursor.selectionStart());
+    end = byte_offset_of(text, cursor.selectionEnd());
+    return true;
+}
+
+void MainWindow::selectChip(std::size_t begin, std::size_t end) {
+    stripHasCurrent_ = true;
+    stripBegin_ = begin;
+    stripEnd_ = end;
+    strip_->setCurrent(begin, end);
+
+    // Mirror it in the editor, so the two views agree on what is selected.
+    const QString text = editor_->toPlainText();
+    QTextCursor cursor = editor_->textCursor();
+    cursor.setPosition(utf16_offset_of(text, begin));
+    cursor.setPosition(utf16_offset_of(text, end), QTextCursor::KeepAnchor);
+    editor_->setTextCursor(cursor);
+}
+
 void MainWindow::loadVocabulary(const QString & path) {
     std::string error;
     if (!vocabulary_.load(path.toStdString(), &error)) {
@@ -985,7 +1163,10 @@ void MainWindow::clearOverrides() {
 
 void MainWindow::applyHighlights() {
     const maxlabel::Segment * segment = currentSegment();
-    if (segment == nullptr) return;
+    if (segment == nullptr) {
+        strip_->setChips({});
+        return;
+    }
 
     const QString text = editor_->toPlainText();
     QList<QTextEdit::ExtraSelection> selections;
@@ -1081,6 +1262,7 @@ void MainWindow::applyHighlights() {
     }
 
     editor_->setExtraSelections(selections);
+    refreshStrip();
 }
 
 void MainWindow::refreshPreview() {
@@ -1149,6 +1331,7 @@ void MainWindow::saveCurrent() {
 
     const maxlabel::Segment * segment = currentSegment();
     if (segment != nullptr) {
+        refreshList();
         showStatus(tr("Saved %1.pfml").arg(QString::fromStdString(segment->id)), "ready");
     }
 }

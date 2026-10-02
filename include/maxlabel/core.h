@@ -140,4 +140,9 @@ std::string escape_text(const std::string & text);
 // The audio extensions the scanner recognises.
 bool is_audio_extension(const std::string & extension);
 
+// Whether the segment's PFML is already on disk unchanged.  The segment list
+// marks the ones that are not, because that is the one thing a person scanning
+// the list needs to know.
+bool is_saved(const Segment & segment);
+
 }  // namespace maxlabel

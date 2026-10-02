@@ -74,6 +74,10 @@ int main(int argc, char ** argv) {
     QString dictionaries;
     QString screenshot;
     bool spectrum = false;
+    int screenshotRow = -1;
+    std::size_t selectBegin = 0;
+    std::size_t selectEnd = 0;
+    QSize screenshotSize;
     for (int i = 1; i < arguments.size(); ++i) {
         const QString & argument = arguments.at(i);
         const bool has_value = i + 1 < arguments.size();
@@ -91,17 +95,35 @@ int main(int argc, char ** argv) {
             screenshot = arguments.at(++i);
         } else if (argument == QLatin1String("--spectrum")) {
             spectrum = true;
+        } else if (argument == QLatin1String("--row") && has_value) {
+            screenshotRow = arguments.at(++i).toInt();
+        } else if (argument == QLatin1String("--select") && has_value) {
+            // "begin,end" as byte offsets, so the block under the cursor in a
+            // screenshot can be chosen rather than guessed.
+            const QStringList parts = arguments.at(++i).split(QLatin1Char(','));
+            if (parts.size() == 2) {
+                selectBegin = parts.at(0).toULongLong();
+                selectEnd   = parts.at(1).toULongLong();
+            }
+        } else if (argument == QLatin1String("--size") && has_value) {
+            const QStringList parts = arguments.at(++i).split(QLatin1Char('x'));
+            if (parts.size() == 2) {
+                screenshotSize = QSize(parts.at(0).toInt(), parts.at(1).toInt());
+            }
         } else if (directory.isEmpty() && !argument.startsWith(QLatin1String("--"))) {
             directory = argument;
         }
     }
 
     MainWindow window;
+    if (!screenshotSize.isEmpty()) window.resize(screenshotSize);
     if (!vocabulary.isEmpty()) window.loadVocabulary(vocabulary);
     if (!g2pDir.isEmpty()) window.loadG2PDirectory(g2pDir);
     if (!g2pConfig.isEmpty()) window.loadG2P(g2pConfig, dictionaries);
     if (!directory.isEmpty()) window.loadDirectory(directory);
     if (spectrum) window.setSpectrumMode(true);
+    if (screenshotRow >= 0) window.selectRowAt(screenshotRow);
+    if (selectEnd > selectBegin) window.selectRange(selectBegin, selectEnd);
     window.show();
 
     if (!screenshot.isEmpty()) {

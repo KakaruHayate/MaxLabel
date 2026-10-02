@@ -373,6 +373,14 @@ void load(Segment & segment) {
 // save / validate / escape
 // ---------------------------------------------------------------------------
 
+bool is_saved(const Segment & segment) {
+    if (segment.id.empty() || segment.directory.empty()) return true;
+    const fs::path target = fs::path(segment.directory) / (segment.id + ".pfml");
+    std::error_code error;
+    if (!fs::exists(target, error)) return false;
+    return read_file(target.string()) == segment.pfml;
+}
+
 void save(const Segment & segment) {
     validate(segment.pfml);
     if (segment.id.empty()) throw std::runtime_error("segment has no id");

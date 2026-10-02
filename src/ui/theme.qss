@@ -152,6 +152,12 @@ QMenu::item:selected { background: #E91E63; color: #ffffff; }
 
 QScrollArea { border: 0; }
 
+/* The strip paints its own background, and the viewport behind it has to
+ * match, or a light-grey band shows around a line that wraps. */
+QScrollArea#stripScroll { background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 4px; }
+QScrollArea#stripScroll > QWidget > QWidget { background: #1e1e1e; }
+QScrollArea#stripScroll QScrollBar:vertical { background: #1e1e1e; }
+
 /* Status colours, as in the reference: a state word is worth a colour, and
  * only one of them is ever showing. */
 QLabel[state="ready"]    { color: #4caf50; }
