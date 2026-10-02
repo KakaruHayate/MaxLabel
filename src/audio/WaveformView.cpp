@@ -24,19 +24,39 @@ const QColor kSelection(0x00, 0xBC, 0xD4, 0x60);
 const QColor kPlayhead(0xFF, 0xFF, 0xFF);
 const QColor kMidline(0x33, 0x33, 0x33);
 
-// A dark -> cyan -> pink ramp for the spectrogram, so the quiet end disappears
-// into the panel instead of glowing.
+// A dark -> blue -> teal -> cyan -> pink -> pale ramp for the spectrogram.
+//
+// Two stops was the first attempt and it read as a wall of two saturated
+// colours: everything above the mid-level landed in one of them, so the
+// harmonics and the formants — the whole reason to look at a spectrogram —
+// were indistinguishable.  More stops, with the bulk of the range spent in the
+// dark half, is what gives the quiet detail somewhere to live.
 QColor spectrum_colour(float level) {
-    const auto mix = [](int from, int to, float t) {
-        return static_cast<int>(from + (to - from) * t);
+    struct Stop {
+        float at;
+        int r, g, b;
+    };
+    static const Stop stops[] = {
+        { 0.00f, 0x1E, 0x1E, 0x1E },   // the panel itself
+        { 0.30f, 0x14, 0x31, 0x4F },   // deep blue
+        { 0.55f, 0x0E, 0x6E, 0x8C },   // teal
+        { 0.75f, 0x00, 0xBC, 0xD4 },   // the palette's secondary
+        { 0.90f, 0xE9, 0x1E, 0x63 },   // and its accent
+        { 1.00f, 0xFF, 0xE2, 0xEC },   // pale, for the loudest few dB
     };
     const float t = std::min(1.0f, std::max(0.0f, level));
-    if (t < 0.5f) {
-        const float k = t * 2.0f;
-        return QColor(mix(0x1E, 0x00, k), mix(0x1E, 0xBC, k), mix(0x1E, 0xD4, k));
+    for (std::size_t i = 1; i < sizeof(stops) / sizeof(stops[0]); ++i) {
+        if (t > stops[i].at) continue;
+        const Stop & a = stops[i - 1];
+        const Stop & b = stops[i];
+        const float k = (t - a.at) / (b.at - a.at);
+        const auto mix = [k](int from, int to) {
+            return static_cast<int>(from + (to - from) * k);
+        };
+        return QColor(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b));
     }
-    const float k = (t - 0.5f) * 2.0f;
-    return QColor(mix(0x00, 0xE9, k), mix(0xBC, 0x1E, k), mix(0xD4, 0x63, k));
+    const Stop & last = stops[sizeof(stops) / sizeof(stops[0]) - 1];
+    return QColor(last.r, last.g, last.b);
 }
 
 // In-place radix-2 FFT.  `re` and `im` must be the same power-of-two length.
@@ -177,7 +197,11 @@ const QImage & WaveformView::spectrogram() {
 
     const std::vector<float> & samples = clip_->samples();
     const int rate = clip_->sampleRate();
-    constexpr int kWindow = 512;
+
+    // 1024 samples is about 21 ms at 48 kHz: enough to separate the harmonics
+    // of a low voice, short enough that a consonant is still a vertical event
+    // rather than a smear.
+    constexpr int kWindow = 1024;
     const int bins = kWindow / 2;
 
     // A logarithmic frequency axis, bottom to top, over the range that carries
@@ -194,6 +218,14 @@ const QImage & WaveformView::spectrogram() {
         window[i] = 0.5f - 0.5f * std::cos(2.0f * 3.14159265358979323846f * i / (kWindow - 1));
     }
 
+    // Pass one: the level of every cell, and the loudest one in the file.
+    //
+    // The mapping has to be relative to the signal's own peak.  A fixed dB
+    // range either saturates a loud recording or flattens a quiet one, and a
+    // spectrogram that is uniformly bright shows nothing — which is exactly
+    // what the first version did to real singing.
+    std::vector<float> levels(static_cast<std::size_t>(w) * h, 0.0f);
+    float loudest = -1000.0f;
     for (int x = 0; x < w; ++x) {
         const std::size_t centre = static_cast<std::size_t>(
             static_cast<double>(x) / w * static_cast<double>(samples.size()));
@@ -208,23 +240,36 @@ const QImage & WaveformView::spectrogram() {
         fft(re, im);
 
         for (int y = 0; y < h; ++y) {
-            // The bin range this pixel row covers, so no energy is dropped
-            // between rows on a coarse axis.
-            const double high_ratio = std::pow(lowest / highest, static_cast<double>(y) / h);
-            const double low_ratio =
-                std::pow(lowest / highest, static_cast<double>(y + 1) / h);
-            const int first = std::max(1, static_cast<int>(highest * high_ratio * kWindow / rate));
-            const int last = std::max(first,
-                                      static_cast<int>(highest * low_ratio * kWindow / rate));
+            // Row y is the band between the frequency at y+1 (lower) and the
+            // one at y (higher); taking the peak over the whole band keeps a
+            // harmonic from falling between two pixel rows on a coarse axis.
+            const double f_high = highest * std::pow(lowest / highest, static_cast<double>(y) / h);
+            const double f_low =
+                highest * std::pow(lowest / highest, static_cast<double>(y + 1) / h);
+            const int first = std::max(1, static_cast<int>(f_low * kWindow / rate));
+            const int last = std::max(first, static_cast<int>(f_high * kWindow / rate));
 
             float peak = 0.0f;
             for (int bin = first; bin <= last && bin < bins; ++bin) {
                 peak = std::max(peak, std::sqrt(re[bin] * re[bin] + im[bin] * im[bin]));
             }
-            // Log magnitude: linear leaves everything but the loudest harmonic
-            // invisible, which is the opposite of useful here.
-            const float db = 20.0f * std::log10(peak + 1e-6f);
-            const float level = std::min(1.0f, std::max(0.0f, (db + 60.0f) / 60.0f));
+            const float db = 20.0f * std::log10(peak + 1e-9f);
+            levels[static_cast<std::size_t>(y) * w + x] = db;
+            loudest = std::max(loudest, db);
+        }
+    }
+
+    // Pass two: 75 dB below the peak is the floor, and a gamma spreads the
+    // middle.  Wide enough that breath and room tone are something other than
+    // black, and spread enough that one harmonic is distinguishable from the
+    // next instead of all of them saturating together.
+    constexpr float kRange = 75.0f;
+    const float floor_db = loudest - kRange;
+    for (int x = 0; x < w; ++x) {
+        for (int y = 0; y < h; ++y) {
+            const float db = levels[static_cast<std::size_t>(y) * w + x];
+            float level = (db - floor_db) / kRange;
+            level = std::pow(std::min(1.0f, std::max(0.0f, level)), 0.7f);
             spectrum_.setPixelColor(x, y, spectrum_colour(level));
         }
     }
