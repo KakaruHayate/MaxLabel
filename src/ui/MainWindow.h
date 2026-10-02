@@ -17,6 +17,8 @@
 // write the segment, so there is never a pending edit to lose.
 
 #include "maxlabel/core.h"
+#include "maxlabel/g2p_context.h"
+#include "maxlabel/vocabulary.h"
 
 #include <QMainWindow>
 #include <QString>
@@ -37,6 +39,12 @@ public:
     // Open a folder without the dialog — what the command line uses.
     void loadDirectory(const QString & directory);
 
+    // Both optional: with a vocabulary the phonemes are checked, and with a
+    // G2P pipeline the pronunciation dialog can offer the dictionary's own
+    // answers.  Without them everything still works, by hand.
+    void loadVocabulary(const QString & path);
+    void loadG2P(const QString & config_json, const QString & dictionary_dir);
+
 private slots:
     void openDirectory();
     void onRowChanged(int row);
@@ -47,6 +55,9 @@ private slots:
     void reSplit();
     void markWord();
     void clearWords();
+    void pinPronunciation();
+    void insertPhonemes();
+    void clearOverrides();
     void setSelectionLanguageZh();
     void setSelectionLanguageJa();
     void setSelectionLanguageEn();
@@ -71,6 +82,9 @@ private:
     maxlabel::Project project_;
     int  current_  = -1;
     bool loading_  = false;   // guards the signals fired while repopulating
+
+    maxlabel::G2PContext g2p_;
+    maxlabel::Vocabulary vocabulary_;
 
     QListWidget *   list_       = nullptr;
     QPlainTextEdit * editor_    = nullptr;

@@ -4,6 +4,7 @@
 // inspect what was found, validate a PFML fragment, and write one back.
 
 #include "maxlabel/core.h"
+#include "maxlabel/g2p_context.h"
 #include "maxlabel/language.h"
 #include "maxlabel/vocabulary.h"
 
@@ -33,6 +34,8 @@ void usage() {
         "  langs <file> [-l <lang>]   split a transcript by language, print the PFML\n"
         "  phoneme <symbol> [-l zh,en] [--vocab <file>]\n"
         "                             check a phoneme against the model vocabulary\n"
+        "  candidates <text> --g2p <config.json> [--dicts <dir>] [-l zh,en]\n"
+        "                             list the pronunciations the pipeline offers\n"
         "\n"
         "A segment is the set of files sharing a basename: song.wav, song.pfml,\n"
         "song.txt, song.lab, song.json.  Text precedence is .pfml > .txt > .lab,\n"
@@ -216,6 +219,42 @@ int command_phoneme(const std::string & symbol, const std::string & vocabulary_p
     return 1;
 }
 
+int command_candidates(const std::string & text, const std::string & g2p_config,
+                       const std::string & dictionaries,
+                       const std::vector<std::string> & languages) {
+    if (g2p_config.empty()) {
+        std::cerr << "candidates needs --g2p <config.json> [--dicts <dir>]\n";
+        return 2;
+    }
+    maxlabel::G2PContext g2p;
+    std::string error;
+    if (!g2p.load(g2p_config, dictionaries, &error)) {
+        std::cerr << error << "\n";
+        return 1;
+    }
+
+    const std::vector<tifa_ggml::G2PWordCandidates> words = g2p.candidates(text, languages);
+    if (words.empty()) {
+        std::cout << "no candidates (nothing claims this text)\n";
+        return 1;
+    }
+    for (const tifa_ggml::G2PWordCandidates & word : words) {
+        std::cout << word.text;
+        if (!word.language.empty()) std::cout << "  [" << word.language << "]";
+        std::cout << "\n";
+        for (const tifa_ggml::G2PCandidate & candidate : word.candidates) {
+            std::cout << "  reading " << candidate.reading << " / path " << candidate.path
+                      << "   script=" << candidate.script << "   phonemes=";
+            for (std::size_t i = 0; i < candidate.phonemes.size(); ++i) {
+                if (i != 0) std::cout << ' ';
+                std::cout << candidate.phonemes[i];
+            }
+            std::cout << "\n";
+        }
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char ** argv) {
@@ -253,6 +292,17 @@ int main(int argc, char ** argv) {
                 if (args[i] == "-l") languages = split_commas(args[i + 1]);
             }
             return command_phoneme(args[1], vocabulary_path, languages);
+        }
+        if (command == "candidates" && args.size() >= 2) {
+            std::string g2p_config;
+            std::string dictionaries;
+            std::vector<std::string> languages;
+            for (std::size_t i = 2; i + 1 < args.size(); ++i) {
+                if (args[i] == "--g2p") g2p_config = args[i + 1];
+                if (args[i] == "--dicts") dictionaries = args[i + 1];
+                if (args[i] == "-l") languages = split_commas(args[i + 1]);
+            }
+            return command_candidates(args[1], g2p_config, dictionaries, languages);
         }
     } catch (const std::exception & error) {
         std::cerr << "error: " << error.what() << "\n";

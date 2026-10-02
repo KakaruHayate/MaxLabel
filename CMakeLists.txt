@@ -66,6 +66,7 @@ add_library(maxlabel_core STATIC
     src/core/language.cpp
     src/core/annotate.cpp
     src/core/vocabulary.cpp
+    src/core/g2p_context.cpp
 )
 add_library(MaxLabel::core ALIAS maxlabel_core)
 

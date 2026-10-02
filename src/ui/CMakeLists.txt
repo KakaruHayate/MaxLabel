@@ -8,6 +8,8 @@ add_executable(MaxLabel
     main.cpp
     MainWindow.cpp
     MainWindow.h
+    PronunciationDialog.cpp
+    PronunciationDialog.h
 )
 
 target_link_libraries(MaxLabel PRIVATE

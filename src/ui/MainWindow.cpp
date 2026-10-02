@@ -1,11 +1,14 @@
 #include "MainWindow.h"
 
+#include "PronunciationDialog.h"
+
 #include <QAction>
 #include <QColor>
 #include <QFileDialog>
 #include <QFontDatabase>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QSplitter>
@@ -53,6 +56,21 @@ bool has_manual_spans(const std::vector<maxlabel::LangSpan> & spans) {
                        [](const maxlabel::LangSpan & span) { return span.manual; });
 }
 
+// Whether any of these phonemes would fail to resolve.  An empty vocabulary
+// cannot answer, so nothing is flagged — a tool that flags everything is as
+// useless as one that flags nothing.
+bool has_unknown_phoneme(const maxlabel::Vocabulary & vocabulary,
+                         const std::vector<std::string> & phonemes,
+                         const std::string & language) {
+    if (vocabulary.empty()) return false;
+    const std::vector<std::string> languages =
+        language.empty() ? std::vector<std::string>{} : std::vector<std::string>{ language };
+    for (const std::string & phoneme : phonemes) {
+        if (!maxlabel::check_phoneme(vocabulary, phoneme, languages).known) return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
@@ -94,6 +112,42 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
 
     QAction * clearWordsAction = toolbar->addAction(tr("Clear Words"));
     connect(clearWordsAction, &QAction::triggered, this, &MainWindow::clearWords);
+
+    toolbar->addSeparator();
+
+    QAction * pinAction = toolbar->addAction(tr("Set Pronunciation…"));
+    pinAction->setShortcut(QKeySequence(Qt::Key_P));
+    pinAction->setToolTip(tr("Pin the final phonemes for the selection"));
+    connect(pinAction, &QAction::triggered, this, &MainWindow::pinPronunciation);
+
+    QAction * insertAction = toolbar->addAction(tr("Insert Phonemes…"));
+    insertAction->setShortcut(QKeySequence(Qt::Key_I));
+    insertAction->setToolTip(tr("Insert a sound at the cursor that is not a word"));
+    connect(insertAction, &QAction::triggered, this, &MainWindow::insertPhonemes);
+
+    // The non-lexical symbols the aligner always knows.  A nasal pad the singer
+    // added is not one of these, but a breath is, and both are one click.
+    QMenu * symbolMenu = new QMenu(this);
+    for (const std::string & symbol : maxlabel::default_global_symbols()) {
+        const QString name = QString::fromStdString(symbol);
+        QAction * action = symbolMenu->addAction(name);
+        connect(action, &QAction::triggered, this, [this, name]() {
+            maxlabel::Segment * segment = currentSegment();
+            if (segment == nullptr) return;
+            const QTextCursor cursor = editor_->textCursor();
+            const std::size_t at = byte_offset_of(editor_->toPlainText(), cursor.position());
+            maxlabel::insert_phoneme(*segment, at, { name.toStdString() });
+            applyHighlights();
+            refreshPreview();
+            refreshStatus();
+        });
+    }
+    QAction * symbolAction = toolbar->addAction(tr("Non-lexical ▾"));
+    symbolAction->setMenu(symbolMenu);
+    symbolAction->setToolTip(tr("Insert AP / SP / sil / … at the cursor"));
+
+    QAction * clearOverridesAction = toolbar->addAction(tr("Clear Overrides"));
+    connect(clearOverridesAction, &QAction::triggered, this, &MainWindow::clearOverrides);
 
     toolbar->addSeparator();
     toolbar->addAction(tr("·  set language of selection:"));
@@ -282,6 +336,80 @@ void MainWindow::clearWords() {
     refreshStatus();
 }
 
+void MainWindow::loadVocabulary(const QString & path) {
+    std::string error;
+    if (!vocabulary_.load(path.toStdString(), &error)) {
+        QMessageBox::warning(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
+        return;
+    }
+    applyHighlights();
+    refreshStatus();
+}
+
+void MainWindow::loadG2P(const QString & config_json, const QString & dictionary_dir) {
+    std::string error;
+    if (!g2p_.load(config_json.toStdString(), dictionary_dir.toStdString(), &error)) {
+        QMessageBox::warning(this, tr("MaxLabel"), QString::fromUtf8(error.c_str()));
+        return;
+    }
+    refreshStatus();
+}
+
+void MainWindow::pinPronunciation() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+
+    const QTextCursor cursor = editor_->textCursor();
+    if (!cursor.hasSelection()) {
+        status_->setText(tr("Select the run to pin a pronunciation for."));
+        return;
+    }
+    const QString text = editor_->toPlainText();
+    const std::size_t begin = byte_offset_of(text, cursor.selectionStart());
+    const std::size_t end   = byte_offset_of(text, cursor.selectionEnd());
+
+    PronunciationDialog dialog(cursor.selectedText(),
+                               QString::fromStdString(maxlabel::language_at(*segment, begin)),
+                               false, &g2p_, &vocabulary_, this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    const std::vector<std::string> phonemes = dialog.phonemes();
+    if (phonemes.empty()) return;
+
+    maxlabel::set_override(*segment, begin, end, std::string(),
+                           dialog.script().toStdString(), phonemes);
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+}
+
+void MainWindow::insertPhonemes() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+
+    const std::size_t at =
+        byte_offset_of(editor_->toPlainText(), editor_->textCursor().position());
+    PronunciationDialog dialog(QString(),
+                               QString::fromStdString(maxlabel::language_at(*segment, at)),
+                               true, &g2p_, &vocabulary_, this);
+    if (dialog.exec() != QDialog::Accepted) return;
+    const std::vector<std::string> phonemes = dialog.phonemes();
+    if (phonemes.empty()) return;
+
+    maxlabel::insert_phoneme(*segment, at, phonemes);
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+}
+
+void MainWindow::clearOverrides() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+    maxlabel::clear_overrides(*segment);
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+}
+
 void MainWindow::applyHighlights() {
     const maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
@@ -329,6 +457,36 @@ void MainWindow::applyHighlights() {
         QTextCharFormat format;
         format.setUnderlineStyle(QTextCharFormat::SingleUnderline);
         format.setUnderlineColor(QColor(0x2C, 0x3E, 0x50));
+        selection.format = format;
+        selections.push_back(selection);
+    }
+
+    // Overrides: a dotted underline says "the phonemes here are written by
+    // hand".  A phoneme the vocabulary does not know turns it into a red wavy
+    // one, because that is the case the aligner would fail on — and finding
+    // out here is the whole reason to check.
+    for (const maxlabel::Override & override_ : segment->overrides) {
+        if (override_.inserts()) continue;   // no text to underline
+        const int begin = utf16_offset_of(text, override_.begin);
+        const int end   = utf16_offset_of(text, override_.end);
+        if (end <= begin) continue;
+
+        const bool unknown = has_unknown_phoneme(
+            vocabulary_, override_.phonemes, maxlabel::language_at(*segment, override_.begin));
+
+        QTextEdit::ExtraSelection selection;
+        selection.cursor = QTextCursor(editor_->document());
+        selection.cursor.setPosition(begin);
+        selection.cursor.setPosition(end, QTextCursor::KeepAnchor);
+
+        QTextCharFormat format;
+        if (unknown) {
+            format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
+            format.setUnderlineColor(QColor(0xC0, 0x39, 0x2B));
+        } else {
+            format.setUnderlineStyle(QTextCharFormat::DotLine);
+            format.setUnderlineColor(QColor(0x7F, 0x5C, 0x00));
+        }
         selection.format = format;
         selections.push_back(selection);
     }
@@ -441,6 +599,13 @@ void MainWindow::refreshStatus() {
     if (!segment->words.empty()) {
         parts << tr("%n fixed word(s)", "", static_cast<int>(segment->words.size()));
     }
+    if (!segment->overrides.empty()) {
+        parts << tr("%n override(s)", "", static_cast<int>(segment->overrides.size()));
+    }
+    parts << (vocabulary_.empty()
+                  ? tr("no vocabulary: phonemes unchecked")
+                  : tr("vocabulary: %1 symbols").arg(vocabulary_.size()));
+    if (g2p_.ready()) parts << tr("G2P ready");
     if (!segment->pfml_valid) {
         parts << tr("PFML INVALID: %1").arg(QString::fromStdString(segment->error));
     }
