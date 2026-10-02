@@ -323,7 +323,8 @@ int main(int argc, char ** argv) {
     const std::vector<std::string> args(rawArgs.begin() + 1, rawArgs.end());
     maxlabel::use_bundled_models(rawArgs.front());
 #else
-        maxlabel::use_bundled_models(argc > 0 ? argv[0] : "");
+    maxlabel::use_bundled_models(argc > 0 ? argv[0] : "");
+    const std::vector<std::string> args(argv + 1, argv + argc);
 #endif
 
     // A global option: where the data files (the BudouX models, the detector
