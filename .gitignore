@@ -69,7 +69,9 @@ Testing/
 .cache/
 
 # Planning notes are kept local: they read as meeting minutes (they quote the
-# discussion) rather than as published documentation.
+# discussion) rather than as published documentation.  The published manual is
+# in manual/, a separate directory on purpose: Git will not descend into an
+# ignored one to find an exception for a file inside it.
 /docs/
 
 # The language-detection model: 916 KB (lite) or 125 MB (full), and its weights

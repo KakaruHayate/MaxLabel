@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(MaxLabel
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "PFML (Pronunciation Flow Markup Language) editing and proofreading tool"
     LANGUAGES CXX)
 
@@ -152,6 +152,8 @@ endif()
 add_executable(maxlabel_cli src/cli/main.cpp)
 target_link_libraries(maxlabel_cli PRIVATE MaxLabel::core)
 target_compile_options(maxlabel_cli PRIVATE ${MAXLABEL_WARN_FLAGS})
+# Same definition as the GUI: one version number, from project() above.
+target_compile_definitions(maxlabel_cli PRIVATE MAXLABEL_VERSION="${PROJECT_VERSION}")
 
 if(MSVC)
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)

@@ -111,6 +111,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item README.md, LICENSE "$env:BIN"
+          Copy-Item -Recurse -Force manual "$env:BIN/manual"
           Copy-Item -Recurse -Force models "$env:BIN/models"
           Compress-Archive -Path "$env:BIN/*" -DestinationPath "MaxLabel-${{ matrix.name }}.zip"
 
@@ -119,6 +120,7 @@ jobs:
         shell: bash
         run: |
           cp README.md LICENSE "$BIN/"
+          cp -r manual "$BIN/manual"
           cp -r models "$BIN/models"
           tar -czf "MaxLabel-${{ matrix.name }}.tar.gz" -C "$BIN" .
 
@@ -128,3 +130,6 @@ jobs:
           tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
           files: MaxLabel-${{ matrix.name }}.${{ matrix.archive }}
           fail_on_unmatched_files: true
+          # The commit messages are written for a reader, so the notes come
+          # from them rather than from a hand-kept list that goes stale.
+          generate_release_notes: true

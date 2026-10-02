@@ -55,6 +55,15 @@ endif()
 add_executable(MaxLabel main.cpp)
 target_link_libraries(MaxLabel PRIVATE maxlabel_ui)
 
+# The version the window reports comes from the project() declaration rather
+# than from a second string in main.cpp.  Two copies of a version number drift
+# on the first release where somebody bumps one of them, and the symptom is a
+# build that says it is a version it is not.
+#
+# PUBLIC, because the UI library is where the About box is built and the
+# executable is where it is reported; both need the same number.
+target_compile_definitions(maxlabel_ui PUBLIC MAXLABEL_VERSION="${PROJECT_VERSION}")
+
 set_target_properties(MaxLabel PROPERTIES
     WIN32_EXECUTABLE ON
     MACOSX_BUNDLE ON

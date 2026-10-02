@@ -107,7 +107,7 @@ ManualDialog::ManualDialog(QWidget * parent) : QDialog(parent) {
     html += row(tr("Space  B"), tr("Play, once the audio pane has the focus."));
     html += row(tr("H"), tr("Stop."));
     html += row(tr("Q  W"), tr("Back / forward half a second."));
-    html += row(tr("Left  Right"), tr("Back / forward one frame."));
+    html += row(tr("Left  Right"), tr("The same, from the arrow keys."));
     html += row(tr("Click  Drag"), tr("Move the playhead / select a range."));
     html += QStringLiteral("</table>");
     html += para(tr("The space bar keeps working as a space in the text panes; the "

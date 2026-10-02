@@ -278,9 +278,10 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     QAction * aboutAction = helpMenu->addAction(tr("About MaxLabel"));
     connect(aboutAction, &QAction::triggered, this, [this]() {
         maxlabel::ui::about(this, tr("About MaxLabel"),
-                           tr("<b>MaxLabel</b> — a PFML editor for the aligner.<br><br>"
+                           tr("<b>MaxLabel</b> %1 — a PFML editor for the aligner.<br><br>"
                               "It turns a folder of audio and transcripts into the PFML "
-                              "that TIFA reads."));
+                              "that TIFA reads.")
+                               .arg(QStringLiteral(MAXLABEL_VERSION)));
     });
 
     // --- the rail -----------------------------------------------------------

@@ -58,7 +58,7 @@ namespace {
 
 void usage() {
     std::cout <<
-        "maxlabel_cli — PFML project tool\n"
+        "maxlabel_cli " MAXLABEL_VERSION " — PFML project tool\n"
         "\n"
         "  scan <dir>                 list the segments found in a directory\n"
         "  show <dir> <id>            print one segment's PFML\n"
@@ -336,6 +336,11 @@ int main(int argc, char ** argv) {
     if (args.empty() || args[0] == "-h" || args[0] == "--help") {
         usage();
         return args.empty() ? 2 : 0;
+    }
+    if (args[0] == "--version") {
+        // Scripts check this before parsing anything else it might print.
+        std::cout << MAXLABEL_VERSION << "\n";
+        return 0;
     }
     const std::string & command = args[0];
     try {
