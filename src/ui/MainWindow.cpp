@@ -1,27 +1,64 @@
 #include "MainWindow.h"
 
 #include <QAction>
+#include <QColor>
 #include <QFileDialog>
-#include <QFont>
 #include <QFontDatabase>
-#include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QStringList>
+#include <QTextCharFormat>
+#include <QTextCursor>
+#include <QTextEdit>
 #include <QToolBar>
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <algorithm>
 #include <exception>
+
+namespace {
+
+// A colour per language.  Chosen to stay apart under the common forms of
+// colour blindness (no red/green pair carrying meaning) and light enough that
+// black text stays readable on top.
+QColor colour_for(const std::string & language) {
+    if (language == "zh")  return QColor(0xC9, 0xE0, 0xF5);   // blue
+    if (language == "ja")  return QColor(0xF3, 0xD3, 0xE8);   // pink
+    if (language == "en")  return QColor(0xD6, 0xEC, 0xC9);   // green
+    if (language == "ko")  return QColor(0xF6, 0xE7, 0xB8);   // amber
+    if (language == "yue") return QColor(0xF7, 0xD9, 0xB5);   // orange
+    return QColor();
+}
+
+// Qt counts in UTF-16 code units; the span model counts UTF-8 bytes.  Cutting
+// the UTF-8 encoding at a span boundary is safe because the detector only ever
+// produces boundaries between code points.
+std::size_t byte_offset_of(const QString & text, int utf16_position) {
+    return static_cast<std::size_t>(text.left(utf16_position).toUtf8().size());
+}
+
+int utf16_offset_of(const QString & text, std::size_t byte_offset) {
+    const QByteArray utf8 = text.toUtf8();
+    if (byte_offset >= static_cast<std::size_t>(utf8.size())) return text.size();
+    return QString::fromUtf8(utf8.left(static_cast<int>(byte_offset))).size();
+}
+
+bool has_manual_spans(const std::vector<maxlabel::LangSpan> & spans) {
+    return std::any_of(spans.begin(), spans.end(),
+                       [](const maxlabel::LangSpan & span) { return span.manual; });
+}
+
+}  // namespace
 
 MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     setWindowTitle(tr("MaxLabel"));
-    resize(1100, 700);
+    resize(1200, 760);
 
-    // --- toolbar ------------------------------------------------------------
     QToolBar * toolbar = addToolBar(tr("Main"));
     toolbar->setMovable(false);
 
@@ -45,31 +82,64 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     saveAction_->setShortcut(QKeySequence::Save);
     connect(saveAction_, &QAction::triggered, this, &MainWindow::saveCurrent);
 
-    QAction * validateAction = toolbar->addAction(tr("Check"));
-    connect(validateAction, &QAction::triggered, this, &MainWindow::validateCurrent);
+    reSplitAction_ = toolbar->addAction(tr("Re-split Languages"));
+    reSplitAction_->setShortcut(QKeySequence(Qt::Key_R));
+    reSplitAction_->setToolTip(tr("Discard the manual language marks and re-run detection"));
+    connect(reSplitAction_, &QAction::triggered, this, &MainWindow::reSplit);
+
+    toolbar->addSeparator();
+    toolbar->addAction(tr("·  set language of selection:"));
+
+    // Digit keys set the language of the selection — the manual half of the
+    // segmentation, and the reason the ambiguity highlight exists.
+    QAction * zh = toolbar->addAction(tr("1 zh"));
+    zh->setShortcut(QKeySequence(Qt::Key_1));
+    connect(zh, &QAction::triggered, this, &MainWindow::setSelectionLanguageZh);
+
+    QAction * ja = toolbar->addAction(tr("2 ja"));
+    ja->setShortcut(QKeySequence(Qt::Key_2));
+    connect(ja, &QAction::triggered, this, &MainWindow::setSelectionLanguageJa);
+
+    QAction * en = toolbar->addAction(tr("3 en"));
+    en->setShortcut(QKeySequence(Qt::Key_3));
+    connect(en, &QAction::triggered, this, &MainWindow::setSelectionLanguageEn);
+
+    QAction * ko = toolbar->addAction(tr("4 ko"));
+    ko->setShortcut(QKeySequence(Qt::Key_4));
+    connect(ko, &QAction::triggered, this, &MainWindow::setSelectionLanguageKo);
 
     // --- central widget -----------------------------------------------------
     QSplitter * splitter = new QSplitter(this);
 
     list_ = new QListWidget(splitter);
-    list_->setMinimumWidth(200);
+    list_->setMinimumWidth(220);
     connect(list_, &QListWidget::currentRowChanged, this, &MainWindow::onRowChanged);
 
-    editor_ = new QPlainTextEdit(splitter);
+    QSplitter * right = new QSplitter(Qt::Vertical, splitter);
+    editor_ = new QPlainTextEdit(right);
     editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    editor_->setTabChangesFocus(false);
     editor_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
-    editor_->setPlaceholderText(
-        tr("PFML fragment, e.g.\n"
-           "<word text=\"重\" language=\"zh\" script=\"zhong\" phonemes=\"zh ong\"/>"));
+    editor_->setPlaceholderText(tr("The lyric line.  Language is detected per script; "
+                                   "select a run and press 1-4 to decide it yourself."));
+    connect(editor_, &QPlainTextEdit::textChanged, this, &MainWindow::onTextChanged);
+
+    preview_ = new QPlainTextEdit(right);
+    preview_->setReadOnly(true);
+    preview_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    preview_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    preview_->setPlaceholderText(tr("The PFML that will be written for the aligner."));
+
+    right->addWidget(editor_);
+    right->addWidget(preview_);
+    right->setStretchFactor(0, 3);
+    right->setStretchFactor(1, 1);
 
     splitter->addWidget(list_);
-    splitter->addWidget(editor_);
+    splitter->addWidget(right);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
     setCentralWidget(splitter);
 
-    // --- status bar ---------------------------------------------------------
     status_ = new QLabel(this);
     statusBar()->addWidget(status_);
 
@@ -77,10 +147,22 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     updateActions();
 }
 
+const maxlabel::Segment * MainWindow::currentSegment() const {
+    if (current_ < 0 || current_ >= static_cast<int>(project_.segments.size())) return nullptr;
+    return &project_.segments[static_cast<std::size_t>(current_)];
+}
+
+maxlabel::Segment * MainWindow::currentSegment() {
+    if (current_ < 0 || current_ >= static_cast<int>(project_.segments.size())) return nullptr;
+    return &project_.segments[static_cast<std::size_t>(current_)];
+}
+
 void MainWindow::openDirectory() {
     const QString directory = QFileDialog::getExistingDirectory(this, tr("Open a project folder"));
-    if (directory.isEmpty()) return;
+    if (!directory.isEmpty()) loadDirectory(directory);
+}
 
+void MainWindow::loadDirectory(const QString & directory) {
     try {
         project_ = maxlabel::scan(directory.toStdString());
     } catch (const std::exception & error) {
@@ -91,6 +173,7 @@ void MainWindow::openDirectory() {
     refreshList();
     if (!project_.segments.empty()) selectRow(0);
     refreshStatus();
+    updateActions();
 }
 
 void MainWindow::refreshList() {
@@ -100,6 +183,7 @@ void MainWindow::refreshList() {
         QString label = QString::fromStdString(segment.id);
         if (!segment.pfml_valid) label += tr("   [invalid]");
         else if (segment.source == maxlabel::TextSource::None) label += tr("   [empty]");
+        if (maxlabel::has_undetermined(segment.spans)) label += tr("   [language?]");
         if (segment.audio_path.empty()) label += tr("   (no audio)");
         list_->addItem(label);
     }
@@ -114,11 +198,13 @@ void MainWindow::selectRow(int row) {
 
     loading_ = true;
     current_ = row;
-    const maxlabel::Segment & segment = project_.segments[static_cast<std::size_t>(row)];
-    editor_->setPlainText(QString::fromStdString(segment.pfml));
-    list_->setCurrentRow(row);
+    const maxlabel::Segment & segment = *currentSegment();
+    editor_->setPlainText(QString::fromStdString(segment.text));
     loading_ = false;
 
+    applyHighlights();
+    refreshPreview();
+    list_->setCurrentRow(row);
     refreshStatus();
     updateActions();
 }
@@ -128,48 +214,136 @@ void MainWindow::onRowChanged(int row) {
     selectRow(row);
 }
 
+void MainWindow::onTextChanged() {
+    if (loading_) return;
+    // Keep the colours live while there is nothing manual to lose.  Once the
+    // author has decided a span by hand, typing must not silently re-derive it
+    // — the status line says so and R re-splits on request.
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+    if (!has_manual_spans(segment->spans)) {
+        segment->text = editor_->toPlainText().toStdString();
+        maxlabel::detect_spans(*segment);
+        maxlabel::rebuild_pfml(*segment);
+    }
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+}
+
+void MainWindow::refreshSpansFromText() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+    segment->text = editor_->toPlainText().toStdString();
+    maxlabel::detect_spans(*segment);
+    maxlabel::rebuild_pfml(*segment);
+}
+
+void MainWindow::reSplit() {
+    refreshSpansFromText();
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+}
+
+void MainWindow::applyHighlights() {
+    const maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+
+    const QString text = editor_->toPlainText();
+    QList<QTextEdit::ExtraSelection> selections;
+
+    for (const maxlabel::LangSpan & span : segment->spans) {
+        const int begin = utf16_offset_of(text, span.begin);
+        const int end   = utf16_offset_of(text, span.end);
+        if (end <= begin) continue;
+
+        QTextEdit::ExtraSelection selection;
+        selection.cursor = QTextCursor(editor_->document());
+        selection.cursor.setPosition(begin);
+        selection.cursor.setPosition(end, QTextCursor::KeepAnchor);
+
+        QTextCharFormat format;
+        if (span.ambiguous || span.language.empty()) {
+            // Undetermined: no colour, a wavy underline.  Colour would read as
+            // an answer, and there is not one yet.
+            format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
+            format.setUnderlineColor(QColor(0xC0, 0x39, 0x2B));
+        } else {
+            format.setBackground(colour_for(span.language));
+            if (span.manual) format.setFontWeight(QFont::DemiBold);
+        }
+        selection.format = format;
+        selections.push_back(selection);
+    }
+    editor_->setExtraSelections(selections);
+}
+
+void MainWindow::refreshPreview() {
+    const maxlabel::Segment * segment = currentSegment();
+    preview_->setPlainText(segment == nullptr ? QString()
+                                              : QString::fromStdString(segment->pfml));
+}
+
+void MainWindow::setSelectionLanguage(const QString & language) {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+
+    const QTextCursor cursor = editor_->textCursor();
+    if (!cursor.hasSelection()) {
+        status_->setText(tr("Select the run to set a language for."));
+        return;
+    }
+    const QString text = editor_->toPlainText();
+    const std::size_t begin = byte_offset_of(text, cursor.selectionStart());
+    const std::size_t end   = byte_offset_of(text, cursor.selectionEnd());
+
+    maxlabel::set_span_language(*segment, begin, end, language.toStdString());
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+}
+
+void MainWindow::setSelectionLanguageZh() { setSelectionLanguage(QStringLiteral("zh")); }
+void MainWindow::setSelectionLanguageJa() { setSelectionLanguage(QStringLiteral("ja")); }
+void MainWindow::setSelectionLanguageEn() { setSelectionLanguage(QStringLiteral("en")); }
+void MainWindow::setSelectionLanguageKo() { setSelectionLanguage(QStringLiteral("ko")); }
+
 bool MainWindow::commitCurrent(bool quiet) {
-    if (current_ < 0 || current_ >= static_cast<int>(project_.segments.size())) return true;
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return true;
 
-    maxlabel::Segment & segment = project_.segments[static_cast<std::size_t>(current_)];
-    const std::string edited = editor_->toPlainText().trimmed().toStdString();
-    if (edited == segment.pfml) return true;   // nothing to do
+    const std::string text = editor_->toPlainText().toStdString();
+    if (text == segment->text) return true;   // nothing to do
 
-    maxlabel::Segment candidate = segment;
-    candidate.pfml = edited;
+    maxlabel::Segment candidate = *segment;
+    candidate.text = text;
+    // Offsets from a previous text no longer describe this one, so the spans
+    // are re-derived rather than sliced against the wrong string.
+    maxlabel::detect_spans(candidate);
+    maxlabel::rebuild_pfml(candidate);
     try {
         maxlabel::save(candidate);
     } catch (const std::exception & error) {
         if (!quiet) {
             QMessageBox::warning(this, tr("PFML did not parse"),
-                                 tr("The fragment was not written, because the aligner "
+                                 tr("The segment was not written, because the aligner "
                                     "would skip this sample:\n\n%1")
                                      .arg(QString::fromUtf8(error.what())));
         }
         return false;
     }
-    segment = candidate;
+    *segment = candidate;
     return true;
 }
 
 void MainWindow::saveCurrent() {
-    if (commitCurrent(false)) refreshStatus();
-}
-
-void MainWindow::validateCurrent() {
-    const std::string text = editor_->toPlainText().trimmed().toStdString();
-    if (text.empty()) {
-        QMessageBox::information(this, tr("MaxLabel"), tr("Nothing to check."));
-        return;
+    if (commitCurrent(false)) {
+        refreshList();
+        applyHighlights();
+        refreshPreview();
+        refreshStatus();
     }
-    try {
-        maxlabel::validate(text);
-    } catch (const std::exception & error) {
-        QMessageBox::warning(this, tr("PFML did not parse"),
-                             QString::fromUtf8(error.what()));
-        return;
-    }
-    QMessageBox::information(this, tr("MaxLabel"), tr("The fragment parses."));
 }
 
 void MainWindow::goPrevious() {
@@ -185,16 +359,32 @@ void MainWindow::refreshStatus() {
         status_->setText(tr("Open a folder to begin."));
         return;
     }
-    QString text = tr("%1 segment(s) — %2")
-                       .arg(project_.segments.size())
-                       .arg(QString::fromStdString(project_.directory));
-    if (current_ >= 0) {
-        const maxlabel::Segment & segment = project_.segments[static_cast<std::size_t>(current_)];
-        text += tr("   |   %1: %2")
-                    .arg(QString::fromStdString(segment.id))
-                    .arg(QString::fromUtf8(maxlabel::to_string(segment.source)));
+    const maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) {
+        status_->setText(tr("%1 segment(s)").arg(project_.segments.size()));
+        return;
     }
-    status_->setText(text);
+
+    QStringList parts;
+    parts << QString::fromStdString(segment->id)
+          << tr("from %1").arg(QString::fromUtf8(maxlabel::to_string(segment->source)));
+
+    int undetermined = 0;
+    for (const maxlabel::LangSpan & span : segment->spans) {
+        if (span.ambiguous || span.language.empty()) ++undetermined;
+    }
+    if (undetermined != 0) {
+        parts << tr("%n undetermined run(s) — select and press 1-4", "", undetermined);
+    } else if (!segment->spans.empty()) {
+        parts << tr("languages decided");
+    }
+    if (has_manual_spans(segment->spans)) {
+        parts << tr("manual marks: editing the text re-derives them");
+    }
+    if (!segment->pfml_valid) {
+        parts << tr("PFML INVALID: %1").arg(QString::fromStdString(segment->error));
+    }
+    status_->setText(parts.join(QStringLiteral("   |   ")));
 }
 
 void MainWindow::updateActions() {
@@ -202,4 +392,5 @@ void MainWindow::updateActions() {
     prevAction_->setEnabled(current_ > 0);
     nextAction_->setEnabled(current_ >= 0 && current_ + 1 < count);
     saveAction_->setEnabled(current_ >= 0);
+    reSplitAction_->setEnabled(current_ >= 0);
 }

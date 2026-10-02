@@ -2,21 +2,26 @@
 
 // MaxLabel main window.
 //
-// Layout follows the plan: the segment list on the left, the PFML editor in
-// the middle, the audio panel on the right (M2 — not wired up yet).  The
-// editor is text-first because PFML is what the aligner reads; the structured
-// views (language spans, word boundaries, phonemes) layer on top of it later.
+// Text-first: the editor edits the lyric line, and the PFML is a generated
+// artifact shown read-only underneath it.  That is the whole point of the
+// tool — PFML is the wire format the aligner wants, not something a human
+// should be typing, and every annotation (language span, later word boundary
+// and pronunciation) is an annotation *on the text*.
 //
-// Data safety: every navigation commits the editor back into the model and
-// writes the segment, so there is never a pending edit to lose.  This is the
-// one behaviour worth getting right early — Aegisub's timing edits are pending
-// and are silently dropped when the selection moves, which is exactly the trap
-// to avoid.
+// The language spans are drawn as background colours, and a span the script
+// could not settle is drawn with a wavy underline instead of a colour: the
+// difference between "this is English" and "this might be Chinese or Japanese"
+// has to be visible at a glance, because only the second one needs a decision.
+//
+// Data safety: navigation and saving commit the editor back into the model and
+// write the segment, so there is never a pending edit to lose.
 
 #include "maxlabel/core.h"
 
 #include <QMainWindow>
 #include <QString>
+
+#include <vector>
 
 class QLabel;
 class QListWidget;
@@ -29,22 +34,37 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget * parent = nullptr);
 
+    // Open a folder without the dialog — what the command line uses.
+    void loadDirectory(const QString & directory);
+
 private slots:
     void openDirectory();
     void onRowChanged(int row);
+    void onTextChanged();
     void saveCurrent();
     void goPrevious();
     void goNext();
-    void validateCurrent();
+    void reSplit();
+    void setSelectionLanguageZh();
+    void setSelectionLanguageJa();
+    void setSelectionLanguageEn();
+    void setSelectionLanguageKo();
 
 private:
+    void setSelectionLanguage(const QString & language);
+
     // Editor -> model, then model -> disk.  Returns false (and leaves the model
-    // untouched) when the fragment does not parse.
+    // untouched) when the resulting PFML does not parse.
     bool commitCurrent(bool quiet);
     void selectRow(int row);
     void refreshList();
+    void refreshSpansFromText();
+    void applyHighlights();
+    void refreshPreview();
     void refreshStatus();
     void updateActions();
+    const maxlabel::Segment * currentSegment() const;
+    maxlabel::Segment * currentSegment();
 
     maxlabel::Project project_;
     int  current_  = -1;
@@ -52,8 +72,10 @@ private:
 
     QListWidget *   list_       = nullptr;
     QPlainTextEdit * editor_    = nullptr;
+    QPlainTextEdit * preview_   = nullptr;
     QLabel *        status_     = nullptr;
     QAction *       saveAction_ = nullptr;
     QAction *       prevAction_ = nullptr;
     QAction *       nextAction_ = nullptr;
+    QAction *       reSplitAction_ = nullptr;
 };
