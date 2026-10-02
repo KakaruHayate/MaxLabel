@@ -112,6 +112,7 @@ set(MAXLABEL_CORE_SOURCES
     src/core/mini_json.cpp
     src/core/models.cpp
     src/core/annotate.cpp
+    src/core/import_pfml.cpp
     src/core/vocabulary.cpp
     src/core/g2p_context.cpp
 )

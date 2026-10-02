@@ -15,8 +15,12 @@ AudioSlicer ──► (文本 / .lab+json / .pfml)
                         └──► TIFA ──► TextGrid + diagnosis.json
 ```
 
-- **输入**：`wav` +（可选）`.pfml` / `.txt` / `.lab` / `.json`；只有 wav 时从零搭建
+- **输入**：（可选）`wav` +（可选）`.pfml` / `.txt` / `.lab` / `.json`
 - **输出**：只有 `.pfml` 一种
+
+**文本优先，音频可选。** 这是和 MinLabel 最大的区别：MinLabel 是音频配标签，
+MaxLabel 是文本配标注。所以**没有 wav 也能正常工作**——打开一个只有 `.txt` 的目录，
+段落照常列出、语言照常切分、`.pfml` 照常写出；音频面板只是不出现，而不是整个工具降级。
 
 ## 项目就是一个文件夹
 

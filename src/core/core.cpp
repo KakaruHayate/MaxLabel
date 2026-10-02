@@ -5,6 +5,8 @@
 
 #include "maxlabel/core.h"
 
+#include "maxlabel/import_pfml.h"
+
 #include "tifa_ggml/g2p.h"
 
 #include <algorithm>
@@ -316,11 +318,26 @@ void load(Segment & segment) {
     // LyricFA's json carries the matched lyric text, which beats a bare
     // syllable line, so it sits between the two.
     if (!segment.pfml_path.empty()) {
-        // Already markup: its language is written into the fragment, so there
-        // is nothing to detect and the file is passed through as it stands.
+        // Already markup: read it back into the model, so the editor shows the
+        // lyric with its annotations on it rather than the markup.  Showing the
+        // markup would be worse than ugly — the spans would be empty, the next
+        // keystroke would re-derive language spans from the markup itself, and
+        // the saved fragment would be garbage.
         segment.pfml   = trim(read_file(segment.pfml_path));
-        segment.text   = segment.pfml;
         segment.source = TextSource::Pfml;
+
+        const ImportedFragment imported = import_pfml(segment.pfml);
+        if (imported.error.empty()) {
+            segment.text      = imported.text;
+            segment.spans     = imported.spans;
+            segment.words     = imported.words;
+            segment.overrides = imported.overrides;
+        } else {
+            // Not something the editor models.  Kept as it stands rather than
+            // half-read, and flagged so the window can say so.
+            segment.text  = segment.pfml;
+            segment.error = imported.error;
+        }
     } else {
         if (!json_text.empty()) {
             segment.text   = json_text;

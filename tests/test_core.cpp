@@ -68,7 +68,9 @@ int main() {
     check(other != nullptr && other->source == maxlabel::TextSource::Pfml,
           "other: text from .pfml");
     check(other != nullptr && other->audio_path.empty(), "other: no audio");
-    check(other != nullptr && other->text == other->pfml, "other: pfml is the content");
+    // The text is the markup-stripped lyric: the editor edits text, not markup.
+    check(other != nullptr && other->text == "重" && other->text != other->pfml,
+          "other: the text is the lyric, not the markup");
 
     const maxlabel::Segment * bare = find(project, "bare");
     check(bare != nullptr && bare->source == maxlabel::TextSource::None,
@@ -138,6 +140,39 @@ int main() {
     }
 
     fs::remove_all(dir);
+    // A project with no audio at all.  Text-first means this is a complete
+    // project rather than a degraded one: everything works, and the audio is
+    // simply absent.
+    {
+        const fs::path dir = fs::temp_directory_path() / "maxlabel_text_only";
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        write_file(dir / "a.txt", "今天天气不错 I love you");
+        write_file(dir / "b.txt", "東京");
+
+        const maxlabel::Project project = maxlabel::scan(dir.string());
+        check(project.segments.size() == 2, "text-only: both segments found");
+        for (const maxlabel::Segment & segment : project.segments) {
+            check(segment.audio_path.empty(), "text-only: no audio, as written");
+            check(!segment.spans.empty(), "text-only: languages detected");
+            check(segment.pfml_valid, "text-only: the PFML is valid");
+        }
+
+        // Saving does not need the audio either — it goes to the segment's own
+        // directory, which it knows without being told.
+        maxlabel::Segment edited = project.segments.front();
+        maxlabel::save(edited);
+        check(fs::exists(dir / "a.pfml"), "text-only: saving works without audio");
+
+        const maxlabel::Project reloaded = maxlabel::scan(dir.string());
+        check(reloaded.segments.size() == 2, "text-only: the rescan is unchanged");
+        if (!reloaded.segments.empty()) {
+            check(reloaded.segments.front().source == maxlabel::TextSource::Pfml,
+                  "text-only: the written PFML takes precedence on the rescan");
+        }
+        fs::remove_all(dir);
+    }
+
     std::cout << (failures == 0 ? "\nALL PASS\n" : "\nFAILURES\n");
     return failures == 0 ? 0 : 1;
 }

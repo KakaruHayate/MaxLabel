@@ -18,6 +18,7 @@
 #include <QListWidget>
 #include <QMetaObject>
 #include <QPlainTextEdit>
+#include <QTextCursor>
 #include <QTemporaryDir>
 
 #include <fstream>
@@ -110,6 +111,40 @@ int main(int argc, char ** argv) {
         check(reloaded.segments.front().source == maxlabel::TextSource::Pfml,
               "the rescan reads the PFML, not the .txt it started from");
         check(reloaded.segments.front().pfml_valid, "and it is valid");
+    }
+
+    // Undo has to cover the annotations, not just the text: setting a run's
+    // language is a model change with no keystroke behind it, and it was the
+    // case that went wrong first.
+    {
+        std::cout << "      [step] selecting all" << std::endl;
+        QTextCursor cursor = editor->textCursor();
+        cursor.setPosition(0);
+        cursor.setPosition(editor->toPlainText().size(), QTextCursor::KeepAnchor);
+        editor->setTextCursor(cursor);
+
+        std::cout << "      [step] invoking setSelectionLanguage" << std::endl;
+        check(QMetaObject::invokeMethod(&window, "setSelectionLanguage",
+                                        Q_ARG(QString, QStringLiteral("ko"))),
+              "setSelectionLanguage is invocable");
+        const std::string marked = read_file(pfml_path);
+        std::cout << "      marked:  " << marked << "\n";
+        std::cout << "      written: " << written << "\n";
+        check(marked.find("language=\"ko\"") != std::string::npos,
+              "setting the language changed the PFML");
+        check(marked.find("language=\"zh\"") == std::string::npos,
+              "and replaced the language that was there");
+
+        check(QMetaObject::invokeMethod(&window, "undo"), "undo is invocable");
+        const std::string undone = read_file(pfml_path);
+        check(undone.find("language=\"ko\"") == std::string::npos,
+              "undo takes the language change back");
+        check(undone.find("language=\"zh\"") != std::string::npos,
+              "and restores what was there before");
+        check(undone == written, "undo restores the file byte for byte");
+
+        check(QMetaObject::invokeMethod(&window, "redo"), "redo is invocable");
+        check(read_file(pfml_path) == marked, "redo puts it back");
     }
 
     // Editing a segment that already has PFML must not overwrite it with a

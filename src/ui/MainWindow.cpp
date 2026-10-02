@@ -10,6 +10,7 @@
 #include <QAction>
 #include <QColor>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QFileDialog>
 #include <QFontDatabase>
 #include <QGridLayout>
@@ -17,6 +18,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -27,6 +29,7 @@
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -36,6 +39,16 @@
 #include <functional>
 
 namespace {
+
+// A burst of typing is one undo step, not one per character: the first
+// keystroke of a burst anchors it and the rest do not add another.  A pause,
+// or any structural edit, starts a new one.
+constexpr qint64 kTypingGroupMs = 700;
+constexpr std::size_t kMaxHistory = 100;
+// How long a pause in typing counts as "stopped".
+constexpr int kTypingSaveMs = 1000;
+// How long a confirmation stays on the status line before the summary returns.
+constexpr int kStatusHoldMs = 4000;
 
 QString format_time(double seconds) {
     if (seconds < 0.0) seconds = 0.0;
@@ -172,6 +185,15 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
     QAction * clearOverridesAction = makeAction(tr("Clear Overrides"), QKeySequence(), QString());
     connect(clearOverridesAction, &QAction::triggered, this, &MainWindow::clearOverrides);
 
+    undoAction_ = makeAction(tr("Undo"), QKeySequence::Undo, QString());
+    connect(undoAction_, &QAction::triggered, this, &MainWindow::undo);
+    redoAction_ = makeAction(tr("Redo"), QKeySequence::Redo, QString());
+    // Ctrl+Shift+Z as well: it is what half the world reaches for.
+    redoAction_->setShortcuts({ QKeySequence::Redo, QKeySequence(QStringLiteral("Ctrl+Shift+Z")) });
+    connect(redoAction_, &QAction::triggered, this, &MainWindow::redo);
+    undoAction_->setEnabled(false);
+    redoAction_->setEnabled(false);
+
     // The non-lexical symbols the aligner always knows.  A nasal pad the singer
     // added is not one of these, but a breath is, and both are one click.
     QMenu * symbolMenu = new QMenu(this);
@@ -183,12 +205,64 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
             if (segment == nullptr) return;
             const QTextCursor cursor = editor_->textCursor();
             const std::size_t at = byte_offset_of(editor_->toPlainText(), cursor.position());
+            pushHistory(false);
             maxlabel::insert_phoneme(*segment, at, { name.toStdString() });
-            applyHighlights();
-            refreshPreview();
-            refreshStatus();
+            commitEdit();
         });
     }
+
+    // --- menus --------------------------------------------------------------
+    // The rail is for the things you do constantly; the menu bar is where the
+    // rest is findable, and where a keyboard shortcut is discoverable rather
+    // than something you have to be told about.
+    QMenu * fileMenu = menuBar()->addMenu(tr("&File"));
+    fileMenu->addAction(openAction);
+    fileMenu->addAction(saveAction_);
+    fileMenu->addSeparator();
+    QAction * quitAction = fileMenu->addAction(tr("Quit"));
+    quitAction->setShortcut(QKeySequence::Quit);
+    connect(quitAction, &QAction::triggered, this, &QWidget::close);
+
+    QMenu * editMenu = menuBar()->addMenu(tr("&Edit"));
+    editMenu->addAction(undoAction_);
+    editMenu->addAction(redoAction_);
+    editMenu->addSeparator();
+    editMenu->addAction(markWordAction);
+    editMenu->addAction(clearWordsAction);
+    editMenu->addAction(reSplitAction_);
+    editMenu->addSeparator();
+    editMenu->addAction(pinAction);
+    editMenu->addAction(insertAction);
+    editMenu->addAction(clearOverridesAction);
+
+    QMenu * viewMenu = menuBar()->addMenu(tr("&View"));
+    QAction * waveformAction = viewMenu->addAction(tr("Waveform"));
+    waveformAction->setCheckable(true);
+    waveformAction->setChecked(true);
+    QAction * spectrumAction = viewMenu->addAction(tr("Spectrum"));
+    spectrumAction->setCheckable(true);
+    connect(waveformAction, &QAction::triggered, this, [this, waveformAction, spectrumAction]() {
+        audio_->setSpectrumMode(false);
+        waveformAction->setChecked(true);
+        spectrumAction->setChecked(false);
+    });
+    connect(spectrumAction, &QAction::triggered, this, [this, waveformAction, spectrumAction]() {
+        audio_->setSpectrumMode(true);
+        waveformAction->setChecked(false);
+        spectrumAction->setChecked(true);
+    });
+    viewMenu->addSeparator();
+    viewMenu->addAction(prevAction_);
+    viewMenu->addAction(nextAction_);
+
+    QMenu * helpMenu = menuBar()->addMenu(tr("&Help"));
+    QAction * aboutAction = helpMenu->addAction(tr("About MaxLabel"));
+    connect(aboutAction, &QAction::triggered, this, [this]() {
+        QMessageBox::about(this, tr("About MaxLabel"),
+                           tr("<b>MaxLabel</b> — a PFML editor for the aligner.<br><br>"
+                              "It turns a folder of audio and transcripts into the PFML "
+                              "that TIFA reads."));
+    });
 
     // --- the rail -----------------------------------------------------------
     // Controls on the left, the document on the right, sections in upper case
@@ -254,6 +328,13 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         steps->addWidget(previous);
         steps->addWidget(next);
         layout->addLayout(steps);
+
+        auto * history = new QHBoxLayout();
+        history->setSpacing(6);
+        addRailButton(box, history, undoAction_, QStringLiteral("undo"));
+        addRailButton(box, history, redoAction_, QStringLiteral("redo"));
+        layout->addLayout(history);
+
         railLayout->addWidget(box);
     }
 
@@ -315,6 +396,29 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
         addRailButton(box, layout, clearOverridesAction);
         railLayout->addWidget(box);
     }
+
+    // Typing commits shortly after it stops, so nothing is left only in memory.
+    typingSaveTimer_ = new QTimer(this);
+    typingSaveTimer_->setSingleShot(true);
+    typingSaveTimer_->setInterval(kTypingSaveMs);
+    connect(typingSaveTimer_, &QTimer::timeout, this, [this]() {
+        if (currentSegment() == nullptr) return;
+        maxlabel::Segment * segment = currentSegment();
+        if (segment == nullptr) return;
+        try {
+            maxlabel::save(*segment);
+        } catch (const std::exception & error) {
+            status_->setText(tr("PFML did not parse: %1").arg(QString::fromUtf8(error.what())));
+        }
+    });
+
+    // A message shown for a moment, then the summary comes back: the status
+    // line is the only place that says what just happened, and it is also the
+    // only place that says where you are.
+    statusTimer_ = new QTimer(this);
+    statusTimer_->setSingleShot(true);
+    statusTimer_->setInterval(kStatusHoldMs);
+    connect(statusTimer_, &QTimer::timeout, this, &MainWindow::refreshStatus);
 
     // --- central widget -----------------------------------------------------
     QSplitter * splitter = new QSplitter(this);
@@ -397,6 +501,9 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
 
     editor_ = new QPlainTextEdit(column);
     editor_->setObjectName(QStringLiteral("editor"));
+    // One undo, not two.  Qt's own stack would cover typing and silently ignore
+    // every annotation, which is worse than no undo at all.
+    editor_->setUndoRedoEnabled(false);
     editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     editor_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     editor_->setPlaceholderText(tr("The lyric line.  Language is detected per script; "
@@ -458,6 +565,8 @@ MainWindow::MainWindow(QWidget * parent) : QMainWindow(parent) {
 
     refreshStatus();
     updateActions();
+    updateHistoryActions();
+    lastPushWasTyping_ = false;
 }
 
 const maxlabel::Segment * MainWindow::currentSegment() const {
@@ -483,10 +592,14 @@ void MainWindow::loadDirectory(const QString & directory) {
         return;
     }
     current_ = -1;
+    histories_.clear();
     refreshList();
     if (!project_.segments.empty()) selectRow(0);
     refreshStatus();
     updateActions();
+
+    showStatus(tr("Loaded %n segment(s)", "", static_cast<int>(project_.segments.size())),
+               "ready");
 }
 
 void MainWindow::refreshList() {
@@ -539,11 +652,18 @@ void MainWindow::onTextChanged() {
     // — the status line says so and R re-splits on request.
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
+    pushHistory(true);
+    // Typing is not written on every keystroke, but it is not left pending
+    // either: a short pause is enough to commit it.
+    typingSaveTimer_->start();
     if (!has_manual_spans(segment->spans)) {
         segment->text = editor_->toPlainText().toStdString();
         maxlabel::detect_spans(*segment);
         maxlabel::rebuild_pfml(*segment);
     }
+    // Refresh only: writing on every keystroke would be a write per character,
+    // which is bad enough on a synced folder to be worth the second of delay.
+    // The debounce timer commits shortly after typing stops.
     applyHighlights();
     refreshPreview();
     refreshStatus();
@@ -559,14 +679,14 @@ void MainWindow::refreshSpansFromText() {
 
 void MainWindow::reSplit() {
     refreshSpansFromText();
-    applyHighlights();
-    refreshPreview();
-    refreshStatus();
+    pushHistory(false);
+    commitEdit();
 }
 
 void MainWindow::markWord() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
+    pushHistory(false);
 
     const QTextCursor cursor = editor_->textCursor();
     if (!cursor.hasSelection()) {
@@ -578,21 +698,146 @@ void MainWindow::markWord() {
     const std::size_t end   = byte_offset_of(text, cursor.selectionEnd());
 
     maxlabel::add_word(*segment, begin, end);
-    applyHighlights();
-    refreshPreview();
-    refreshStatus();
+    commitEdit();
 }
 
 void MainWindow::clearWords() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
+    pushHistory(false);
     maxlabel::clear_words(*segment);
+    commitEdit();
+}
+
+void MainWindow::setSpectrumMode(bool spectrum) { audio_->setSpectrumMode(spectrum); }
+
+MainWindow::Snapshot MainWindow::snapshot() const {
+    Snapshot state;
+    const maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return state;
+    state.text      = segment->text;
+    state.spans     = segment->spans;
+    state.words     = segment->words;
+    state.overrides = segment->overrides;
+    state.pfml      = segment->pfml;
+    return state;
+}
+
+void MainWindow::pushHistory(bool typing) {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+    History & history = histories_[segment->id];
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (typing && lastPushWasTyping_ && !history.undo.empty() &&
+        now - lastPushMs_ < kTypingGroupMs) {
+        lastPushMs_ = now;   // the burst is already anchored
+        return;
+    }
+
+    history.undo.push_back(snapshot());
+    if (history.undo.size() > kMaxHistory) history.undo.erase(history.undo.begin());
+    history.redo.clear();
+    lastPushWasTyping_ = typing;
+    lastPushMs_ = now;
+    updateHistoryActions();
+}
+
+void MainWindow::restore(const Snapshot & state) {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+
+    segment->text      = state.text;
+    segment->spans     = state.spans;
+    segment->words     = state.words;
+    segment->overrides = state.overrides;
+    segment->pfml      = state.pfml;
+
+    // loading_ keeps onTextChanged from reading this as a keystroke and pushing
+    // another step on top of the one being undone.
+    loading_ = true;
+    editor_->setPlainText(QString::fromStdString(state.text));
+    loading_ = false;
+
+    // Everything else lands on disk immediately; an undo has to as well, or the
+    // file would disagree with the window.
+    try {
+        maxlabel::save(*segment);
+    } catch (const std::exception & error) {
+        status_->setText(tr("PFML did not parse: %1").arg(QString::fromUtf8(error.what())));
+    }
+
+    commitEdit();
+}
+
+void MainWindow::undo() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+    History & history = histories_[segment->id];
+    if (history.undo.empty()) return;
+
+    history.redo.push_back(snapshot());
+    const Snapshot state = history.undo.back();
+    history.undo.pop_back();
+    restore(state);
+    lastPushWasTyping_ = false;
+    updateHistoryActions();
+    showStatus(tr("Undone"), "ready");
+}
+
+void MainWindow::redo() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment == nullptr) return;
+    History & history = histories_[segment->id];
+    if (history.redo.empty()) return;
+
+    history.undo.push_back(snapshot());
+    const Snapshot state = history.redo.back();
+    history.redo.pop_back();
+    restore(state);
+    lastPushWasTyping_ = false;
+    updateHistoryActions();
+    showStatus(tr("Redone"), "ready");
+}
+
+void MainWindow::updateHistoryActions() {
+    const maxlabel::Segment * segment = currentSegment();
+    const History * history = nullptr;
+    if (segment != nullptr) {
+        const auto it = histories_.find(segment->id);
+        if (it != histories_.end()) history = &it->second;
+    }
+    if (undoAction_ != nullptr) undoAction_->setEnabled(history != nullptr && !history->undo.empty());
+    if (redoAction_ != nullptr) redoAction_->setEnabled(history != nullptr && !history->redo.empty());
+}
+
+void MainWindow::showStatus(const QString & message, const char * state, int milliseconds) {
+    status_->setText(message);
+    // The theme colours the status line by this property, so it has to be
+    // re-polished for the change to show: Qt does not restyle on a property
+    // change by itself.
+    status_->setProperty("state", state);
+    status_->style()->unpolish(status_);
+    status_->style()->polish(status_);
+    statusTimer_->start(milliseconds);
+}
+
+void MainWindow::commitEdit() {
+    maxlabel::Segment * segment = currentSegment();
+    if (segment != nullptr) {
+        // The design is that nothing is ever pending: a change that is only in
+        // memory is one crash away from being lost, and the file would
+        // disagree with the window until the next navigation.
+        try {
+            maxlabel::save(*segment);
+        } catch (const std::exception & error) {
+            showStatus(tr("Not saved: %1").arg(QString::fromUtf8(error.what())), "error");
+        }
+    }
     applyHighlights();
     refreshPreview();
     refreshStatus();
 }
-
-void MainWindow::setSpectrumMode(bool spectrum) { audio_->setSpectrumMode(spectrum); }
 
 void MainWindow::loadVocabulary(const QString & path) {
     std::string error;
@@ -616,6 +861,7 @@ void MainWindow::loadG2P(const QString & config_json, const QString & dictionary
 void MainWindow::pinPronunciation() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
+    pushHistory(false);
 
     const QTextCursor cursor = editor_->textCursor();
     if (!cursor.hasSelection()) {
@@ -635,14 +881,13 @@ void MainWindow::pinPronunciation() {
 
     maxlabel::set_override(*segment, begin, end, std::string(),
                            dialog.script().toStdString(), phonemes);
-    applyHighlights();
-    refreshPreview();
-    refreshStatus();
+    commitEdit();
 }
 
 void MainWindow::insertPhonemes() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
+    pushHistory(false);
 
     const std::size_t at =
         byte_offset_of(editor_->toPlainText(), editor_->textCursor().position());
@@ -654,18 +899,15 @@ void MainWindow::insertPhonemes() {
     if (phonemes.empty()) return;
 
     maxlabel::insert_phoneme(*segment, at, phonemes);
-    applyHighlights();
-    refreshPreview();
-    refreshStatus();
+    commitEdit();
 }
 
 void MainWindow::clearOverrides() {
     maxlabel::Segment * segment = currentSegment();
     if (segment == nullptr) return;
+    pushHistory(false);
     maxlabel::clear_overrides(*segment);
-    applyHighlights();
-    refreshPreview();
-    refreshStatus();
+    commitEdit();
 }
 
 void MainWindow::applyHighlights() {
@@ -771,10 +1013,9 @@ void MainWindow::setSelectionLanguage(const QString & language) {
     const std::size_t begin = byte_offset_of(text, cursor.selectionStart());
     const std::size_t end   = byte_offset_of(text, cursor.selectionEnd());
 
+    pushHistory(false);
     maxlabel::set_span_language(*segment, begin, end, language.toStdString());
-    applyHighlights();
-    refreshPreview();
-    refreshStatus();
+    commitEdit();
 }
 
 bool MainWindow::commitCurrent(bool quiet) {
@@ -811,11 +1052,15 @@ bool MainWindow::commitCurrent(bool quiet) {
 }
 
 void MainWindow::saveCurrent() {
-    if (commitCurrent(false)) {
-        refreshList();
-        applyHighlights();
-        refreshPreview();
-        refreshStatus();
+    if (!commitCurrent(false)) return;
+    refreshList();
+    applyHighlights();
+    refreshPreview();
+    refreshStatus();
+
+    const maxlabel::Segment * segment = currentSegment();
+    if (segment != nullptr) {
+        showStatus(tr("Saved %1.pfml").arg(QString::fromStdString(segment->id)), "ready");
     }
 }
 
@@ -866,6 +1111,8 @@ void MainWindow::refreshStatus() {
     if (g2p_.ready()) parts << tr("G2P ready");
     if (!segment->pfml_valid) {
         parts << tr("PFML INVALID: %1").arg(QString::fromStdString(segment->error));
+    } else if (!segment->error.empty()) {
+        parts << tr("not editable here: %1").arg(QString::fromStdString(segment->error));
     }
     status_->setText(parts.join(QStringLiteral("   |   ")));
 }

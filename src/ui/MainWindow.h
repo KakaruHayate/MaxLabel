@@ -23,12 +23,16 @@
 #include <QMainWindow>
 #include <QString>
 
+#include <cstdint>
+#include <map>
+#include <string>
 #include <vector>
 
 class QLabel;
 class QListWidget;
 class QPlainTextEdit;
 class QAction;
+class QTimer;
 class AudioPanel;
 
 class MainWindow : public QMainWindow {
@@ -62,9 +66,35 @@ private slots:
     void pinPronunciation();
     void insertPhonemes();
     void clearOverrides();
+    void undo();
+    void redo();
+    void setSelectionLanguage(const QString & language);
 
 private:
-    void setSelectionLanguage(const QString & language);
+    // Undo is whole-segment snapshots.  Aegisub's model, and the one that fits:
+    // the annotations are a handful of small vectors, so a snapshot is cheap,
+    // and there is no inverse operation to get wrong.
+    struct Snapshot {
+        std::string text;
+        std::vector<maxlabel::LangSpan> spans;
+        std::vector<maxlabel::WordBoundary> words;
+        std::vector<maxlabel::Override> overrides;
+        std::string pfml;
+    };
+    struct History {
+        std::vector<Snapshot> undo;
+        std::vector<Snapshot> redo;
+    };
+
+    Snapshot snapshot() const;
+    void restore(const Snapshot & state);
+    // `typing` marks a keystroke, so a burst of them collapses into one step.
+    void pushHistory(bool typing);
+    // Save and refresh: the tail every structural edit ends with.
+    void commitEdit();
+    // A message on the status line for a moment, then the summary returns.
+    void showStatus(const QString & message, const char * state, int milliseconds = 4000);
+    void updateHistoryActions();
 
     // Editor -> model, then model -> disk.  Returns false (and leaves the model
     // untouched) when the resulting PFML does not parse.
@@ -85,6 +115,16 @@ private:
 
     maxlabel::G2PContext g2p_;
     maxlabel::Vocabulary vocabulary_;
+
+    // Keyed by segment id, so navigating away and back does not throw the
+    // history away.
+    std::map<std::string, History> histories_;
+    bool     lastPushWasTyping_ = false;
+    qint64   lastPushMs_ = 0;
+    QTimer *  typingSaveTimer_ = nullptr;
+    QTimer *  statusTimer_ = nullptr;
+    QAction * undoAction_ = nullptr;
+    QAction * redoAction_ = nullptr;
 
     QListWidget *   list_       = nullptr;
     QPlainTextEdit * editor_    = nullptr;

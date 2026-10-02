@@ -13,5 +13,7 @@
         <file alias="save.svg">icons/save.svg</file>
         <file alias="previous.svg">icons/previous.svg</file>
         <file alias="next.svg">icons/next.svg</file>
+        <file alias="undo.svg">icons/undo.svg</file>
+        <file alias="redo.svg">icons/redo.svg</file>
     </qresource>
 </RCC>
