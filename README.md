@@ -4,7 +4,7 @@ PFML（Pronunciation Flow Markup Language）的编辑与校对工具 —— **TI
 
 > **完整手册**：[中文](manual/manual.zh-CN.md) ｜ [English](manual/manual.en.md)
 > —— 安装、界面、操作与覆盖规则、语言切分、命令行、快捷键、已知限制。
-> 本文件是概览；手册是给要上手和要查细节的人写的。
+> 本文件是概览；手册是给要上手和要查细节的人写的。每个发行版包含什么见 [更新日志](CHANGELOG.md)。
 
 TIFA 可以直接吃文本，但它需要一个"哪里该断词、哪段是什么语言、哪个字读什么"的载体，
 这个载体就是 PFML。手写 PFML 既难又容易出错（**无效 PFML 的样本会被对齐器直接跳过、

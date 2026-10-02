@@ -110,18 +110,26 @@ jobs:
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          Copy-Item README.md, LICENSE "$env:BIN"
+          Copy-Item README.md, LICENSE, CHANGELOG.md "$env:BIN"
           Copy-Item -Recurse -Force manual "$env:BIN/manual"
           Copy-Item -Recurse -Force models "$env:BIN/models"
+          # The test binaries are built into the same directory the release is
+          # packaged from, so they have to be taken back out: they have already
+          # done their job above, and shipping six of them to a user is six
+          # executables that do not belong to the product.
+          Get-ChildItem "$env:BIN" -Filter '*_test*' | Remove-Item -Force
           Compress-Archive -Path "$env:BIN/*" -DestinationPath "MaxLabel-${{ matrix.name }}.zip"
 
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
-          cp README.md LICENSE "$BIN/"
+          cp README.md LICENSE CHANGELOG.md "$BIN/"
           cp -r manual "$BIN/manual"
           cp -r models "$BIN/models"
+          # See the zip step: the tests are built where the release is packaged
+          # from and must not travel in it.
+          rm -f "$BIN"/*_test "$BIN"/*_test.exe
           tar -czf "MaxLabel-${{ matrix.name }}.tar.gz" -C "$BIN" .
 
       - name: Attach to the release
