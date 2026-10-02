@@ -112,6 +112,11 @@ jobs:
         run: |
           Copy-Item README.md, LICENSE, CHANGELOG.md "$env:BIN"
           Copy-Item -Recurse -Force manual "$env:BIN/manual"
+          # Everything under models/ ships: the BudouX tables, the phoneme
+          # table and the pronunciation dictionaries are committed there, and
+          # the language detector is downloaded into it two steps up.  Adding
+          # a data file to a release means committing it to models/ — there is
+          # no second list to remember.
           Copy-Item -Recurse -Force models "$env:BIN/models"
           # The test binaries are built into the same directory the release is
           # packaged from, so they have to be taken back out: they have already

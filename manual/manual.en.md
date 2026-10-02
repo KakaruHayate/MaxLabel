@@ -78,7 +78,7 @@ install is needed.**
 | Linux x64 | `MaxLabel-linux-x64.tar.gz` | `./MaxLabel` |
 | macOS arm64 | `MaxLabel-macos-arm64.tar.gz` | `MaxLabel.app` |
 
-The language-detection model (`models/lid.176.bin`) is already in the archive.
+Every data file is already in the archive (`models/`): the language-detection model, the Chinese / Japanese / English / Cantonese pronunciation dictionaries, and the phoneme table. Unpack and run — **there is nothing else to download**.
 
 > **The command-line program `maxlabel_cli` sits in the same directory and does not depend on Qt.**
 > Use it for batch validation and scripting, with no graphical environment at all.
@@ -329,19 +329,40 @@ neighbours rather than being called a language.
 
 ## 10. Vocabulary and G2P
 
-Both are **optional**. Without them everything still works, by typing phonemes by hand. With them
-you get two things:
+**Both are already in the release**, and work with no arguments at all. The data sits in `models/`
+beside the program:
 
-- **A vocabulary** (`--vocab <file>`, one phoneme per line): every phoneme is **checked**, and one
-  that is not in the list is pointed out — rather than being discovered when the aligner skips the
-  whole sample.
-- **G2P** (`--g2p-dir <model dir>` or `--g2p <config.json>`): the pronunciation dialog **lists the
-  dictionary's candidates**; one click fills them in. This matters most for the polyphonic
-  characters of Chinese and Japanese.
+| Data | Contents |
+|---|---|
+| `models/vocab.txt` | 220 phoneme symbols (en 42 / ja 40 / yue 70 / zh 65) |
+| `models/dictionaries/`, `models/cpp_pinyin/` | the Chinese / Japanese / English / Cantonese pronunciation dictionaries |
+
+So out of the box:
+
+- the pronunciation dialog **lists the dictionary's candidates**; one click fills them in — which
+  matters most for the polyphonic characters of Chinese and Japanese;
+- every phoneme is **checked**, and one that is not in the table is pointed out, rather than being
+  discovered when the aligner skips the whole sample.
+
+The table is taken from `tifa.vocab.json`, embedded in the TIFA model `tifa-1.0-st` — that is, it is
+**the same set of symbols the aligner knows**. Entries are written `<language>/<phoneme>`: the same
+`a` is a different symbol in English and in Chinese, and English has no `a` at all (it has
+`aa`/`ae`/`ah`…). A flat list without the language would let "an `a` inside an English run" through
+unnoticed, which is exactly the mistake this check exists to catch.
+
+`--vocab` / `--g2p-dir` / `--g2p` still exist, as **overrides**: a different table, a different set
+of dictionaries.
+
+> **Korean is the exception**: the TIFA model has no Korean phonemes. The tool can label a run as
+> Korean, but the phonemes there cannot be checked — that is the edge of what the model covers, not
+> a gap in the table.
 
 G2P uses `tifa_ggml_g2p` from [tifa.cpp](https://github.com/KakaruHayate/tifa.cpp) — the same code
 TIFA itself uses, so "the reading this tool can look up" and "the reading the aligner will look up"
 are the same reading.
+
+Where the data files come from, and their licences, is written up in
+[models/README.md](../models/README.md).
 
 ---
 

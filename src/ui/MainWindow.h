@@ -55,6 +55,11 @@ public:
     // Builds the config from a model directory and loads it.
     void loadG2PDirectory(const QString & model_dir);
 
+    // Whether the pronunciation pipeline ended up usable.  Shown in the
+    // status line, and the only way to tell "loaded the bundled dictionaries"
+    // from "quietly loaded nothing".
+    bool g2pReady() const { return g2p_.ready(); }
+
     // Development aid: start in spectrum mode, so the renderer can be looked at.
     void setSpectrumMode(bool spectrum);
 

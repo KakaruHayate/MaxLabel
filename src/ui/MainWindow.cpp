@@ -127,15 +127,37 @@ bool has_manual_spans(const std::vector<maxlabel::LangSpan> & spans) {
                        [](const maxlabel::LangSpan & span) { return span.manual; });
 }
 
-// Whether any of these phonemes would fail to resolve.  An empty vocabulary
-// cannot answer, so nothing is flagged — a tool that flags everything is as
-// useless as one that flags nothing.
+// Whether any of these phonemes would fail to resolve, under the languages
+// given.  An empty vocabulary cannot answer, so nothing is flagged — a tool
+// that flags everything is as useless as one that flags nothing.
+//
+// The languages a phoneme is allowed to resolve under.
+//
+// The run's own language first.  When the run has not been decided yet, every
+// language the segment uses: the aligner qualifies a bare phoneme with the
+// language it is aligning as, so a phoneme that exists somewhere in this line
+// is not the mistake this check is looking for.  Without the fallback, turning
+// the check on by shipping a vocabulary would flag every phoneme in every
+// undecided line, which reads as a broken tool rather than as a decision
+// waiting to be made.
+std::vector<std::string> phoneme_languages(const maxlabel::Segment & segment,
+                                           std::size_t position) {
+    const std::string language = maxlabel::language_at(segment, position);
+    if (!language.empty()) return { language };
+
+    std::vector<std::string> out;
+    for (const maxlabel::LangSpan & span : segment.spans) {
+        if (span.language.empty()) continue;
+        if (std::find(out.begin(), out.end(), span.language) == out.end()) {
+            out.push_back(span.language);
+        }
+    }
+    return out;
+}
+
 bool has_unknown_phoneme(const maxlabel::Vocabulary & vocabulary,
                          const std::vector<std::string> & phonemes,
-                         const std::string & language) {
-    if (vocabulary.empty()) return false;
-    const std::vector<std::string> languages =
-        language.empty() ? std::vector<std::string>{} : std::vector<std::string>{ language };
+                         const std::vector<std::string> & languages) {
     for (const std::string & phoneme : phonemes) {
         if (!maxlabel::check_phoneme(vocabulary, phoneme, languages).known) return true;
     }
@@ -1067,7 +1089,7 @@ void MainWindow::refreshStrip() {
             insert.label   = QStringLiteral("+") + joined;
             insert.unknown = has_unknown_phoneme(
                 vocabulary_, override_.phonemes,
-                maxlabel::language_at(*segment, override_.begin));
+                phoneme_languages(*segment, override_.begin));
             inserts.push_back(std::move(insert));
         }
         std::sort(inserts.begin(), inserts.end(),
@@ -1142,7 +1164,7 @@ void MainWindow::refreshStrip() {
                     }
                     chip.unknown = has_unknown_phoneme(
                         vocabulary_, override_.phonemes,
-                        maxlabel::language_at(*segment, override_.begin));
+                        phoneme_languages(*segment, override_.begin));
                     break;
                 }
                 chips.push_back(std::move(chip));
@@ -1444,7 +1466,7 @@ void MainWindow::applyHighlights() {
         if (end <= begin) continue;
 
         const bool unknown = has_unknown_phoneme(
-            vocabulary_, override_.phonemes, maxlabel::language_at(*segment, override_.begin));
+            vocabulary_, override_.phonemes, phoneme_languages(*segment, override_.begin));
 
         QTextEdit::ExtraSelection selection;
         selection.cursor = QTextCursor(editor_->document());

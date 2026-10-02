@@ -11,6 +11,7 @@
 
 #include "Resources.h"
 
+#include "maxlabel/g2p_config.h"
 #include "maxlabel/models.h"
 
 #include <QApplication>
@@ -129,9 +130,25 @@ int main(int argc, char ** argv) {
 
     MainWindow window;
     if (!screenshotSize.isEmpty()) window.resize(screenshotSize);
+
+    // The data files the release carries — the pronunciation dictionaries and
+    // the phoneme table — sit beside the binary like the language models do,
+    // so the tool works out of the box.  An explicit --vocab / --g2p* still
+    // wins, and a build without the data simply leaves those features off
+    // rather than opening with an error about them.
+    const std::string bundled = maxlabel::model_directory();
+    if (vocabulary.isEmpty()) {
+        const QString path = QString::fromStdString(bundled + "/vocab.txt");
+        if (QFile::exists(path)) vocabulary = path;
+    }
     if (!vocabulary.isEmpty()) window.loadVocabulary(vocabulary);
-    if (!g2pDir.isEmpty()) window.loadG2PDirectory(g2pDir);
-    if (!g2pConfig.isEmpty()) window.loadG2P(g2pConfig, dictionaries);
+    if (!g2pDir.isEmpty()) {
+        window.loadG2PDirectory(g2pDir);
+    } else if (!g2pConfig.isEmpty()) {
+        window.loadG2P(g2pConfig, dictionaries);
+    } else if (!maxlabel::build_g2p_config(bundled).empty()) {
+        window.loadG2PDirectory(QString::fromStdString(bundled));
+    }
     if (!directory.isEmpty()) window.loadDirectory(directory);
     if (spectrum) window.setSpectrumMode(true);
     if (screenshotRow >= 0) window.selectRowAt(screenshotRow);

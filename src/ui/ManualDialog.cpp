@@ -82,10 +82,10 @@ ManualDialog::ManualDialog(QWidget * parent) : QDialog(parent) {
                                     "colour that language takes in the text."));
     html += row(tr("W"), tr("Fix the selection as one word — or take that mark back if "
                             "it already is exactly that word."));
-    html += row(tr("P"), tr("Pin a pronunciation. With a G2P pipeline configured the "
-                            "dictionary's candidates are listed; pick one or type your "
-                            "own. <em>Remove</em> in that dialog takes a written "
-                            "pronunciation off again."));
+    html += row(tr("P"), tr("Pin a pronunciation. The dictionary's candidates are "
+                            "listed — the dictionaries ship with the tool; pick one or "
+                            "type your own. <em>Remove</em> in that dialog takes a "
+                            "written pronunciation off again."));
     html += row(tr("I"), tr("Insert a discrete sound at the cursor — a nasal pad the "
                             "singer added, a breath. It is not part of the text, so it "
                             "gets a <code>+tag</code> above the line instead of a "

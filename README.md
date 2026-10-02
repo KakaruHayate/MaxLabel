@@ -88,26 +88,34 @@ maxlabel_cli set <dir> <id> [file]   # 写入 <id>.pfml（无 file 时读 stdin�
 maxlabel_cli langs <file> [-l zh]    # 按语言切分转录文本，打印得到的 PFML
 maxlabel_cli phoneme <符号> [-l zh,en] [--vocab <file>]
                                      # 查一个音素在模型词表里能不能解析
-maxlabel_cli candidates <文本> --g2p <config.json> [--dicts <dir>] [-l zh,en]
+maxlabel_cli candidates <文本> [--g2p <config.json>] [--dicts <dir>] [-l zh,en]
                                      # 列出管线给出的候选发音
 ```
 
 `scan` 会把 PFML 不合法的段落标出来并以非零码退出 —— 因为那些样本对齐器会静默跳过。
 
-## 词表与 G2P 配置是可选的
+## 词表与 G2P：发行版里已经带上了
 
-两者都**不配置也能用**，只是退化：
+两者**开箱即用**，不需要任何参数 —— 数据就在程序旁边的 `models/` 里：
 
-| 配置 | 有 | 没有 |
+| 数据 | 内容 | 从哪来 |
 |---|---|---|
-| `--vocab <符号表>` | 发音弹窗逐个音素校验，不在表里的打红色波浪线 | 不校验，状态栏明说"phonemes unchecked" |
-| `--g2p <config.json> --dicts <dir>` | 发音弹窗列出词典给出的候选，点选即填 | 手打音素 |
+| `models/vocab.txt` | 220 个音素符号（en 42 / ja 40 / yue 70 / zh 65） | 从 TIFA 模型 `tifa-1.0-st` 内嵌的 `tifa.vocab.json` 提取 |
+| `models/dictionaries/` + `models/cpp_pinyin/` | 中/日/英/粤的发音词典 | 与 TIFA 同一份 |
 
-符号表是**一行一个符号**（`#` 开头是注释）。它本来在模型的 GGUF 里，而 MaxLabel 按设计不含 ggml，
-所以取导出的列表而不是长一个 GGUF reader。
+所以默认就是：发音弹窗**列出词典候选**，音素**逐个校验**，不在表里的打红色波浪线。
 
-> **已知缺口**：tifa.cpp 的 `tifa_ggml_cli inspect` 只打印词表大小，**不导出符号列表**。
-> 所以目前要拿到这份列表还得另找办法。给 `inspect` 加一个导出选项是个小改动，值得提给上游。
+`--vocab` / `--g2p-dir` / `--g2p` 仍然在，是**覆盖**用的（换一份表、换一套词典），不传就用自带的。
+
+**符号表写成 `<语言>/<音素>`**，和模型内部的符号表一一对应。这一点是有意的：`a` 在英语里不存在
+（英语是 `aa`/`ae`/`ah`…），所以不带语言前缀的平表会让一个"在英语区间里写了 `a`"的错误悄悄通过，
+而那正是这套校验要抓的东西。
+
+> **韩语是个例外**：TIFA 模型里没有韩语音素。工具可以把一段标成韩语，但那里的音素校验不了 ——
+> 这是模型的能力边界，不是表漏了。
+>
+> 数据文件的来源和许可证见 [models/README.md](models/README.md)（`cpp_pinyin` 用的是 CC-CEDICT / CC-Canto，
+> 是 CC BY-SA；另有三个文件上游未声明条款，那本里写清楚了）。
 
 ## 语言切分
 
@@ -141,9 +149,13 @@ maxlabel_cli candidates <文本> --g2p <config.json> [--dicts <dir>] [-l zh,en]
 
 | 文件 | 大小 | 许可 | 来源 |
 |---|---|---|---|
-| `models/budoux/ja.json` | 20 KB | Apache-2.0 | 随仓库提交 |
-| `models/budoux/zh-hans.json` | 64 KB | Apache-2.0 | 随仓库提交 |
+| `models/budoux/*.json` | 84 KB | Apache-2.0 | 随仓库提交 |
+| `models/vocab.txt` | 4 KB | 从模型提取 | 随仓库提交（取自 `tifa-1.0-st` 内嵌的词表） |
+| `models/dictionaries/`、`models/cpp_pinyin/` | 4 MB | CC-CEDICT / CC-Canto 等 | 随仓库提交（详见 [models/README.md](models/README.md)） |
 | `models/lid.176.bin`（或 `.ftz`） | 125 MB / 916 KB | **CC BY-SA 3.0** | 由 CI 下载，打进发布包 |
+
+**全部由发行版打包，用户不需要单独下载。** 完整的来源与许可证说明在
+[models/README.md](models/README.md)。
 
 - **BudouX** 是纯 JSON 的线性模型（13 张特征表），负责把中日文段再细分成词，
   好让检测器看到的是词而不是整段。移植后与原版 Python **逐例一致**，测试里钉住了参考输出。
@@ -214,8 +226,9 @@ VS Code 暗色中性色 + Material 粉 `#E91E63` 强调色，左侧控制栏、�
 - **标记是"后操作覆盖前操作"的**：在已有的 `今天天气` 里标 `天气`，`今天` 会作为独立的词留下，
   而不是被整块吃掉；发音这种带值的标记则整体替换 —— 为一个区间写的读音不是短区间的读音，
   切一半下来是错的值，不是折中的值。
-- 指定发音的弹窗里：配了 G2P 就**列出词典的候选**，点一下即填；没配就手打。
-  配了词表就**逐个音素校验**，不在表里的名字会被点出来 —— 而不是等到对齐时才发现。
+- 指定发音的弹窗里**列出词典给出的候选**，点一下即填；也可以手打。
+  音素**逐个校验**，不在表里的名字会被点出来 —— 而不是等到对齐时才发现。
+  这两样用的数据发行版里已经带上了（见下），不用配置。
 - **下方是可编辑的 PFML 框**，也就是实际会写出去的内容。可以直接改：输入的内容会被读回上面的
   文本和字符条，两边不会各说各话。**解析不了的片段什么都不改** —— 框变红、由它推导出的面板变暗
   （而不是继续显示上一次的解析结果，那读起来像"没问题"），原因写在状态栏和框的提示里。

@@ -229,10 +229,19 @@ int command_langs(const std::string & path, const std::string & default_language
 
 int command_phoneme(const std::string & symbol, const std::string & vocabulary_path,
                     const std::vector<std::string> & languages) {
+    // A release carries its own phoneme table beside the binary, so the common
+    // case needs no argument at all; --vocab is for a different table.
+    std::string path = vocabulary_path;
+    if (path.empty()) {
+        const std::string bundled = maxlabel::model_directory() + "/vocab.txt";
+        std::ifstream probe(bundled);
+        if (probe) path = bundled;
+    }
+
     maxlabel::Vocabulary vocabulary;
-    if (!vocabulary_path.empty()) {
+    if (!path.empty()) {
         std::string error;
-        if (!vocabulary.load(vocabulary_path, &error)) {
+        if (!vocabulary.load(path, &error)) {
             std::cerr << error << "\n";
             return 1;
         }
@@ -255,8 +264,17 @@ int command_phoneme(const std::string & symbol, const std::string & vocabulary_p
 int command_candidates(const std::string & text, const std::string & g2p_config,
                        const std::string & dictionaries,
                        const std::vector<std::string> & languages) {
-    if (g2p_config.empty() && dictionaries.empty()) {
-        std::cerr << "candidates needs --g2p <config.json> or --g2p-dir <model dir>\n";
+    // A release carries its own dictionaries beside the binary too.
+    std::string config_path = g2p_config;
+    std::string dict_dir = dictionaries;
+    if (config_path.empty() && dict_dir.empty()) {
+        if (!maxlabel::build_g2p_config(maxlabel::model_directory()).empty()) {
+            dict_dir = maxlabel::model_directory();
+        }
+    }
+    if (config_path.empty() && dict_dir.empty()) {
+        std::cerr << "candidates needs --g2p <config.json> or --g2p-dir <model dir>\n"
+                  << "(no dictionaries found in " << maxlabel::model_directory() << ")\n";
         return 2;
     }
     maxlabel::G2PContext g2p;
@@ -264,18 +282,22 @@ int command_candidates(const std::string & text, const std::string & g2p_config,
     // --g2p-dir points at a model directory and the config is built from what is
     // in it; --g2p points at a config file.  Either way the user should not have
     // to write a g2p config by hand.
-    if (!g2p_config.empty()) {
-        if (!g2p.load(g2p_config, dictionaries, &error)) {
+    if (!config_path.empty()) {
+        if (!g2p.load(config_path, dict_dir, &error)) {
             std::cerr << error << "\n";
             return 1;
         }
     } else {
-        const std::string built = maxlabel::build_g2p_config(dictionaries);
+        const std::string built = maxlabel::build_g2p_config(dict_dir);
         if (built.empty()) {
-            std::cerr << "no usable dictionaries in " << dictionaries << "\n";
+            std::cerr << "no usable dictionaries in " << dict_dir << "\n";
             return 1;
         }
-        if (!g2p.loadConfig(built, dictionaries, &error)) {
+        // dict_dir, not the raw `dictionaries` argument: the paths inside the
+        // built config are relative to the directory it was built from, and
+        // passing the argument meant the default (which sets no argument) had
+        // nothing to resolve against.
+        if (!g2p.loadConfig(built, dict_dir, &error)) {
             std::cerr << error << "\n";
             return 1;
         }
